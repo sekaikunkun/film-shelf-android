@@ -21,7 +21,11 @@ jobs:
           echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
           echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
           export JAVA_HOME="$JAVA_HOME_21_X64"
-          sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "ndk;29.0.14206865" "cmake;3.22.1"
+          sdk="$RUNNER_TEMP/film-shelf-sdk"
+          echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$sdk" >> "$GITHUB_ENV"
+          export ANDROID_HOME="$sdk" ANDROID_SDK_ROOT="$sdk"
+          bash scripts/install-sdk.sh "$sdk"
       - name: Fetch and patch pinned upstream
         run: bash scripts/prepare.sh "$RUNNER_TEMP/film-shelf"
       - name: Run regression tests and check the ARM64 debug APK

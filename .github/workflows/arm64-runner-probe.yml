@@ -1,0 +1,19 @@
+name: ARM64 emulator host preflight
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    steps:
+      - name: Verify native host and access to KVM
+        run: |
+          uname -m
+          test "$(uname -m)" = aarch64
+          if [ ! -c /dev/kvm ] || [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+            echo "::error::This hosted ARM64 job cannot access /dev/kvm. Native accelerated Android runtime tests are not available here."
+            exit 1
+          fi
+          echo "::notice::KVM is accessible. Emulator SDK and native guest ABI/page size still require validation."
