@@ -1,0 +1,28 @@
+name: Android ARM64 CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.10"
+      - name: Select JDK 21 and install Android SDK components
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "ndk;29.0.14206865" "cmake;3.22.1"
+      - name: Fetch and patch pinned upstream
+        run: bash scripts/prepare.sh "$RUNNER_TEMP/film-shelf"
+      - name: Run regression tests and check the ARM64 debug APK
+        run: bash scripts/check.sh "$RUNNER_TEMP/film-shelf"
