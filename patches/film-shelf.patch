@@ -35,7 +35,7 @@ index 799122e0b6c1c43b0b4db890714cda722894103b..f11f47149060f984c5fd821bd5fce6b4
              android:launchMode="singleTop"
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..d556ac02fe1dbafc67b7529b4c22c11dcf4d66b8
+index 0000000000000000000000000000000000000000..9039cce9d16af67976893a48d38536af71733690
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java
 @@ -0,0 +1,247 @@
@@ -182,7 +182,7 @@ index 0000000000000000000000000000000000000000..d556ac02fe1dbafc67b7529b4c22c11d
 +    private List<Route> loadRoutes(Candidate candidate) throws IOException {
 +        Site site = candidate.site();
 +        int type = site.getType();
-+        if (!FamilyRouteProbePolicy.plainCatalog(type, !site.getExt().isEmpty(), !site.getHeader().isEmpty()))
++        if (!FamilyRouteProbePolicy.plainCatalog(type, !site.getExt().isEmpty(), !site.getHeader().isEmpty(), !site.getPlayUrl().isEmpty()))
 +            return Collections.emptyList();
 +        HttpUrl api = HttpUrl.parse(site.getApi());
 +        if (api == null || !api.username().isEmpty() || !api.password().isEmpty())
@@ -352,7 +352,7 @@ index 0000000000000000000000000000000000000000..75ac13de2649032b93e4a3891fc293dc
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..f934b3f3dffb7eccf70cb5d400aaa1e35044dbe4
+index 0000000000000000000000000000000000000000..e56c2475a0d96e5c6e154c6dfc3fc15bf179732b
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java
 @@ -0,0 +1,73 @@
@@ -420,8 +420,8 @@ index 0000000000000000000000000000000000000000..f934b3f3dffb7eccf70cb5d400aaa1e3
 +        }
 +    }
 +
-+    static boolean plainCatalog(int type, boolean hasExtension, boolean hasHeaders) {
-+        return (type == 0 || type == 1) && !hasExtension && !hasHeaders;
++    static boolean plainCatalog(int type, boolean hasExtension, boolean hasHeaders, boolean hasPlayUrl) {
++        return (type == 0 || type == 1) && !hasExtension && !hasHeaders && !hasPlayUrl;
 +    }
 +
 +    static boolean confirmed(boolean firstFrame, long firstPositionMs, long currentPositionMs) {
@@ -502,7 +502,7 @@ index 4a19e318ebfecc29646e4efed18d37419b3a3c0a..3e2930dcee765e41b192ef94e0a0539c
          else if (item.getResId() == R.string.home_search) SearchActivity.start(this);
          else if (item.getResId() == R.string.home_setting) SettingActivity.start(this);
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
-index 5a1e119bc160e402f144f7c6afb21818b5696949..feae5db5b68a43dea38572ba3ea6778c51365273 100644
+index 5a1e119bc160e402f144f7c6afb21818b5696949..7b70b26212d01446bc07ccfd63f5e1043d993fa6 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 @@ -1178,7 +1178,294 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
@@ -541,7 +541,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..feae5db5b68a43dea38572ba3ea6778c
 +        if (!familyResumed || isFinishing() || isDestroyed() || familyLoginWait
 +                || mFlagAdapter.getItemCount() < 2 || mEpisodeAdapter.getItemCount() == 0) return;
 +        Site site = getSite();
-+        if (!FamilyRouteProbePolicy.plainCatalog(site.getType(), !site.getExt().isEmpty(), !site.getHeader().isEmpty())) {
++        if (!FamilyRouteProbePolicy.plainCatalog(site.getType(), !site.getExt().isEmpty(), !site.getHeader().isEmpty(), !site.getPlayUrl().isEmpty())) {
 +            Notify.show("此来源需要解析或登录，请手动选择线路");
 +            return;
 +        }
@@ -1356,10 +1356,10 @@ index 0000000000000000000000000000000000000000..58e501505e76a9b3fd37904671c59199
 +}
 diff --git a/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..dc83b327cac4bbccdc9c14455a2c216ff5c47c6f
+index 0000000000000000000000000000000000000000..39d0483454a96450769a484d0b3897abf0ee0c2d
 --- /dev/null
 +++ b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,53 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import org.junit.Test;
@@ -1406,10 +1406,11 @@ index 0000000000000000000000000000000000000000..dc83b327cac4bbccdc9c14455a2c216f
 +    }
 +
 +    @Test public void directChecksRequireCatalogWithoutPluginExtensionOrHeaders() {
-+        assertTrue(FamilyRouteProbePolicy.plainCatalog(1, false, false));
-+        assertFalse(FamilyRouteProbePolicy.plainCatalog(3, false, false));
-+        assertFalse(FamilyRouteProbePolicy.plainCatalog(0, true, false));
-+        assertFalse(FamilyRouteProbePolicy.plainCatalog(1, false, true));
++        assertTrue(FamilyRouteProbePolicy.plainCatalog(1, false, false, false));
++        assertFalse(FamilyRouteProbePolicy.plainCatalog(3, false, false, false));
++        assertFalse(FamilyRouteProbePolicy.plainCatalog(0, true, false, false));
++        assertFalse(FamilyRouteProbePolicy.plainCatalog(1, false, true, false));
++        assertFalse(FamilyRouteProbePolicy.plainCatalog(1, false, false, true));
 +    }
 +}
 diff --git a/chaquo/build.gradle b/chaquo/build.gradle
