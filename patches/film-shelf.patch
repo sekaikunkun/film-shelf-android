@@ -35,10 +35,10 @@ index 799122e0b6c1c43b0b4db890714cda722894103b..f11f47149060f984c5fd821bd5fce6b4
              android:launchMode="singleTop"
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..9039cce9d16af67976893a48d38536af71733690
+index 0000000000000000000000000000000000000000..49a3cb3fcb6ee3fdc1efcc15307bde458587d095
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java
-@@ -0,0 +1,247 @@
+@@ -0,0 +1,250 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import android.content.Context;
@@ -199,8 +199,11 @@ index 0000000000000000000000000000000000000000..9039cce9d16af67976893a48d38536af
 +            Result result = Result.fromType(type, body.readUtf8());
 +            List<Route> found = new ArrayList<>();
 +            for (Flag flag : result.getVod().setFlags().getFlags()) {
-+                if (flag.getEpisodes().isEmpty()) continue;
-+                Episode first = flag.getEpisodes().get(0);
++                List<Episode> episodes = flag.getEpisodes();
++                int index = FamilyRouteProbePolicy.initialEpisodeIndex(
++                        episodes.stream().map(Episode::getName).collect(java.util.stream.Collectors.toList()));
++                if (index < 0) continue;
++                Episode first = episodes.get(index);
 +                if (FamilyRouteProbePolicy.directMedia(first.getUrl())) {
 +                    found.add(new Route(flag.getFlag(), first.getName(), first.getUrl()));
 +                    if (found.size() == FamilyRouteProbePolicy.ROUTE_LIMIT) break;
@@ -355,10 +358,10 @@ index 0000000000000000000000000000000000000000..bfe506d2a5f2483e6bc30eaff493efdd
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..790e29d10e9013feba8a68fb87acbb5773824f93
+index 0000000000000000000000000000000000000000..575e6715cc9f2346cd2760e8717385491f51659c
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,107 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import java.net.URI;
@@ -411,6 +414,27 @@ index 0000000000000000000000000000000000000000..790e29d10e9013feba8a68fb87acbb57
 +            match = i;
 +        }
 +        return match;
++    }
++
++    // Scan by episode identity, not display order: a playable trailer can be listed first.
++    static int initialEpisodeIndex(List<String> labels) {
++        int episodeOne = -1;
++        int fullFeature = -1;
++        boolean numbered = false;
++        for (int i = 0; i < labels.size(); i++) {
++            String label = normalize(labels.get(i));
++            int number = episodeNumber(label);
++            if (number >= 0) numbered = true;
++            if (number == 1) {
++                if (episodeOne >= 0) return -1;
++                episodeOne = i;
++            }
++            if (label.equals("正片") || label.equals("全片") || label.equals("full movie")
++                    || label.equals("full feature")) {
++                fullFeature = fullFeature == -1 ? i : -2;
++            }
++        }
++        return episodeOne >= 0 || numbered ? episodeOne : Math.max(fullFeature, -1);
 +    }
 +
 +    private static String normalize(String label) {
@@ -518,7 +542,7 @@ index 4a19e318ebfecc29646e4efed18d37419b3a3c0a..3e2930dcee765e41b192ef94e0a0539c
          else if (item.getResId() == R.string.home_search) SearchActivity.start(this);
          else if (item.getResId() == R.string.home_setting) SettingActivity.start(this);
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
-index 5a1e119bc160e402f144f7c6afb21818b5696949..ef4cc15c49e26832e4bcb32986943fa0b67ea15d 100644
+index 5a1e119bc160e402f144f7c6afb21818b5696949..1e292b324186ecbe2b886a376aeeadec0ed2696a 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 @@ -1178,7 +1178,307 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
@@ -704,8 +728,8 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..ef4cc15c49e26832e4bcb32986943fa0
 +
 +    private void showFamilyScanResults(List<FamilyDirectRouteScan.Outcome> results, String previousEpisode) {
 +        CharSequence[] rows = results.stream().map(outcome -> outcome.candidate().vod().getSiteName()
-+                + "  ·  " + (outcome.playable() != null ? "可播：" + outcome.playable().episode()
-+                : outcome.attempted() ? "未检测到可播画面" : "待手动检测")).toArray(CharSequence[]::new);
++                + "  ·  " + (outcome.playable() != null ? "可播，从 " + outcome.playable().episode() + " 开始"
++                : outcome.attempted() ? "未确认起播集可播" : "无法自动确认起播集")).toArray(CharSequence[]::new);
 +        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
 +                .setTitle(previousEpisode.isEmpty() ? "检测结果" : "检测结果 · 原集数 " + previousEpisode)
 +                .setItems(rows, null).setNegativeButton("返回", null).create();
@@ -888,7 +912,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..ef4cc15c49e26832e4bcb32986943fa0
      }
  
      private void onFullscreen() {
-@@ -3643,8 +3970,30 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -3643,8 +3970,33 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          boolean empty = item.getFlags().isEmpty();
          mBinding.flag.setVisibility(empty ? View.GONE : View.VISIBLE);
          if (empty) {
@@ -903,16 +927,19 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..ef4cc15c49e26832e4bcb32986943fa0
 +                FamilyDirectRouteScan.Route route = chosen.playable();
 +                for (Flag flag : item.getFlags()) {
 +                    if (!flag.getFlag().equals(route.flag())) continue;
-+                    for (Episode episode : flag.getEpisodes()) {
-+                        if (!route.episode().equals(episode.getName()) || !route.url().equals(episode.getUrl())) continue;
-+                        mHistory.setVodFlag(flag.getFlag());
-+                        mHistory.setVodRemarks(episode.getName());
-+                        mHistory.setEpisodeUrl(episode.getUrl());
-+                        mHistory.setPosition(0);
-+                        onItemClick(flag);
-+                        if (mHistory.isRevSort()) reverseEpisode(true);
-+                        return;
-+                    }
++                    List<Episode> episodes = flag.getEpisodes();
++                    int index = FamilyRouteProbePolicy.initialEpisodeIndex(
++                            episodes.stream().map(Episode::getName).collect(java.util.stream.Collectors.toList()));
++                    if (index < 0) continue;
++                    Episode episode = episodes.get(index);
++                    if (!route.episode().equals(episode.getName()) || !route.url().equals(episode.getUrl())) continue;
++                    mHistory.setVodFlag(flag.getFlag());
++                    mHistory.setVodRemarks(episode.getName());
++                    mHistory.setEpisodeUrl(episode.getUrl());
++                    mHistory.setPosition(0);
++                    selectFlagEpisode(flag, episode);
++                    if (mHistory.isRevSort()) reverseEpisode(true);
++                    return;
 +                }
 +                Notify.show("线路已更新，请手动选择");
 +                return;
@@ -920,7 +947,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..ef4cc15c49e26832e4bcb32986943fa0
              onItemClick(mHistory.getFlag());
              if (mHistory.isRevSort()) reverseEpisode(true);
          }
-@@ -5460,6 +5809,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5460,6 +5812,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      protected void onError(String msg) {
@@ -939,7 +966,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..ef4cc15c49e26832e4bcb32986943fa0
          recordPlayHealth(false, msg);
          Track.delete(player().getKey());
          mClock.setCallback(null);
-@@ -5469,7 +5830,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5469,7 +5833,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          player().reset();
          player().stop();
          showError(msg);
@@ -947,7 +974,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..ef4cc15c49e26832e4bcb32986943fa0
      }
  
      @Override
-@@ -5495,6 +5855,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5495,6 +5858,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                  showProgress();
                  break;
              case Player.STATE_READY:
@@ -955,7 +982,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..ef4cc15c49e26832e4bcb32986943fa0
                  mKaraokeResultShown = false;
                  recordPlayHealth(true, "");
                  hideProgress();
-@@ -5730,7 +6091,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5730,7 +6094,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
              mQuickSearchDialog.addAll(items);
              return;
          }
@@ -964,7 +991,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..ef4cc15c49e26832e4bcb32986943fa0
          dialog.dismissListener(d -> {
              if (mQuickSearchDialog != dialog) return;
              mQuickSearchDialog = null;
-@@ -5748,14 +6109,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5748,14 +6112,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      public void onItemClick(Vod item) {
@@ -984,7 +1011,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..ef4cc15c49e26832e4bcb32986943fa0
          String keyword = Objects.toString(mBinding.part.getTag(), "");
          if (isAutoMode()) return !item.getName().equals(keyword);
          else return !item.getName().contains(keyword);
-@@ -5779,7 +6143,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5779,7 +6146,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          Vod item = mQuickAdapter.get(position);
          Notify.show(getString(R.string.play_switch_site, item.getSiteName()));
          mQuickAdapter.remove(position);
@@ -993,7 +1020,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..ef4cc15c49e26832e4bcb32986943fa0
          setInitAuto(false);
          applySearchArtwork(item);
          getDetail(item);
-@@ -6323,6 +6687,21 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6323,6 +6690,21 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          if (service() != null) refreshLyrics();
      }
  
@@ -1015,7 +1042,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..ef4cc15c49e26832e4bcb32986943fa0
      @Override
      protected void onStop() {
          super.onStop();
-@@ -6354,6 +6733,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6354,6 +6736,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void finishVideoPlaybackNow() {
@@ -1023,7 +1050,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..ef4cc15c49e26832e4bcb32986943fa0
          mViewModel.stopSearch();
          saveHistory(true);
          markPlaybackExiting();
-@@ -6364,6 +6744,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6364,6 +6747,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      protected void onDestroy() {
@@ -1401,10 +1428,10 @@ index 0000000000000000000000000000000000000000..86cf3ceb93d1e0651d9c4af254cf453e
 +}
 diff --git a/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..29bfc09673ff27872eb481a73fac0adcc0d4c024
+index 0000000000000000000000000000000000000000..56496ccd622a8c44422838ce4c46920136d7e6c7
 --- /dev/null
 +++ b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,85 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import org.junit.Test;
@@ -1474,6 +1501,20 @@ index 0000000000000000000000000000000000000000..29bfc09673ff27872eb481a73fac0adc
 +                    status != FamilyRouteProbePolicy.LocalStatus.NO_MATCH && status != FamilyRouteProbePolicy.LocalStatus.PROBE,
 +                    FamilyRouteProbePolicy.canSelect(status));
 +        }
++    }
++
++    @Test public void crossSourceStartsAtActualEpisodeOneRatherThanFirstListEntry() {
++        assertEquals(2, FamilyRouteProbePolicy.initialEpisodeIndex(List.of("预告片", "第9集", "ＥＰ０１")));
++        assertEquals(1, FamilyRouteProbePolicy.initialEpisodeIndex(List.of("Trailer", "第１话")));
++        assertEquals(1, FamilyRouteProbePolicy.initialEpisodeIndex(List.of("预告片", "正片")));
++    }
++
++    @Test public void crossSourceDoesNotGuessWhenTheStartIsAmbiguous() {
++        assertEquals(-1, FamilyRouteProbePolicy.initialEpisodeIndex(List.of("Episode01", "第1集")));
++        assertEquals(-1, FamilyRouteProbePolicy.initialEpisodeIndex(List.of("正片", "全片")));
++        assertEquals(-1, FamilyRouteProbePolicy.initialEpisodeIndex(List.of("正片", "Episode02")));
++        assertEquals(-1, FamilyRouteProbePolicy.initialEpisodeIndex(List.of("预告片", "HD")));
++        assertEquals(-1, FamilyRouteProbePolicy.initialEpisodeIndex(List.of("Trailer", "Season 2 Episode 1")));
 +    }
 +}
 diff --git a/chaquo/build.gradle b/chaquo/build.gradle
