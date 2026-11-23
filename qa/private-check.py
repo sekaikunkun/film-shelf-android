@@ -63,6 +63,21 @@ def decode_snapshot(data):
     if root.tag != "hierarchy":
         raise CaptureError
     texts, positions = set(), []
+    parents = {child: parent for parent in root.iter() for child in parent}
+
+    def within_seek_control(node):
+        wanted = iter((PACKAGE + ":id/seek", PACKAGE + ":id/control"))
+        expected = next(wanted)
+        while node in parents:
+            node = parents[node]
+            if node.tag != "node" or node.get("package") != PACKAGE:
+                return False
+            if node.get("resource-id") == expected:
+                expected = next(wanted, None)
+                if expected is None:
+                    return True
+        return False
+
     for node in root.iter("node"):
         if node.get("package") != PACKAGE:
             continue
@@ -70,7 +85,7 @@ def decode_snapshot(data):
         value = node.get("text", "")
         if value in AUTH_DIALOG and resource in {"alertTitle", "message", "button1", "button2"}:
             texts.add(value)
-        if node.get("resource-id") == PACKAGE + ":id/position":
+        if node.get("resource-id") == PACKAGE + ":id/position" and within_seek_control(node):
             m = re.fullmatch(r"(?:(\d{1,2}):)?([0-5]?\d):([0-5]\d)", value)
             if m:
                 h, minute, sec = (int(part or 0) for part in m.groups())

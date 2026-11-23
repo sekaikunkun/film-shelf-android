@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+from copy import deepcopy
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,7 @@ MARKERS = ("URL_CANARY", "TOKEN_CANARY", "TITLE_CANARY", "QR_CANARY")
 FAKE_ADB = """#!/usr/bin/env python3
 import os, sys
 from pathlib import Path
+from copy import deepcopy
 a = sys.argv[1:]
 assert a[:4] == ['-H', '127.0.0.1', '-P', '15084']
 assert not os.environ.get('ADB_SERVER_SOCKET')
@@ -49,16 +51,21 @@ else:
 """
 
 
-def sample(position=None, login=False, lookalike=False):
+def sample(position=None, login=False, lookalike=False, preview=None):
     root = ET.Element("hierarchy")
     for field, canary in zip(("api", "token", "name", "code"), MARKERS):
         ET.SubElement(root, "node", package=CHECK.PACKAGE,
                       text="https://example.invalid/" + canary,
                       attrib={"resource-id": CHECK.PACKAGE + ":id/" + field,
                               "content-desc": canary})
+    def node(parent, rid, text=""):
+        return ET.SubElement(parent, "node", package=CHECK.PACKAGE, text=text,
+                             attrib={"resource-id": CHECK.PACKAGE + ":id/" + rid})
+
     if position:
-        ET.SubElement(root, "node", package=CHECK.PACKAGE, text=position,
-                      attrib={"resource-id": CHECK.PACKAGE + ":id/position"})
+        node(node(node(root, "control"), "seek"), "position", position)
+    if preview:
+        node(node(root, "center"), "position", preview)
     if login or lookalike:
         for rid, value in zip(("alertTitle", "message", "button2", "button1"),
                               ("需要扫码或登录", "完成验证后，选择重试播放。", "继续等待", "重试播放")):
@@ -88,7 +95,10 @@ class PrivateCheckTest(unittest.TestCase):
 
     def test_playback_and_login_path_emit_only_fixed_report(self):
         for one, two, scenario, expected, progress in (
-            (sample("00:05", lookalike=True), sample("00:08"), "playback", "pass", True),
+            (sample("00:05", lookalike=True, preview="00:15"), sample("00:08", preview="00:30"), "playback", "pass", True),
+            (sample(preview="00:15"), sample(preview="00:30"), "playback", "unconfirmed", None),
+            (sample("00:05"), sample(), "playback", "unconfirmed", None),
+            (sample("00:05", preview="00:15"), sample("00:05", preview="00:30"), "playback", "unconfirmed", False),
             (sample(login=True), sample(login=True), "login_wait", "requires_login", None),
             (sample("00:05"), sample("00:05"), "playback", "unconfirmed", False),
             (sample("00:52"), sample("00:01"), "playback", "unconfirmed", None),
@@ -115,5 +125,5 @@ class PrivateCheckTest(unittest.TestCase):
         self.assertEqual(CHECK.decode_snapshot(data.encode()), (False, None))
         data = sample("00:32")
         tree = ET.fromstring(data)
-        tree.append(tree[-1])
+        tree.append(deepcopy(tree[-1]))
         self.assertEqual(CHECK.decode_snapshot(ET.tostring(tree)), (False, None))

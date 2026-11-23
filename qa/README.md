@@ -57,8 +57,10 @@ operator input, Android diagnostics or screenshots to CI, chat or cloud
 storage. The service providing the source still receives ordinary playback
 requests. Use normal login; don't capture, relay, or decode a login QR code.
 
-For the progression check, start playing and show the playback controls so
-the clock is visible; leave the device untouched during the two samples.
+For the progression check, enter fullscreen while playing and press Down to
+show the lower playback controls immediately before running the observer.
+Leave the device untouched during the two samples. The center pause/scrub
+preview is not a playback clock.
 For the login check, first bring up the app's explicit login prompt.
 
 ```sh
