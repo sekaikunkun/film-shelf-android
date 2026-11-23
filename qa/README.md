@@ -28,3 +28,14 @@ Test as a viewer using the remote. Do not change the app to make tests pass. Rec
 5. Record build and installed APK hashes, guest ABI and actual page size. Record what was observed on this emulator separately from physical-device behavior and third-party provider compatibility.
 
 Repeat this handoff before treating playback changes as feature-complete. A device or provider case not run is **not tested**, never silently passed.
+
+## Reproduce with a local fixture
+
+The synthetic CMS exposes normal, reversed, ambiguous, slow, manual and fake-video responses, plus a one-time QR challenge and a negated timeout. Generate a short test MP4 with movement and no real content, then run:
+
+```sh
+ffmpeg -f lavfi -i testsrc2=size=640x360:rate=24 -t 90 -c:v libx264 -pix_fmt yuv420p -movflags +faststart qa-motion.mp4
+python3 qa/synthetic-provider.py qa-motion.mp4 --port 18656
+```
+
+Configure only the **disposable emulator** to reach the loopback fixture through its dedicated ADB server and explicitly selected serial. For an existing dedicated session, use `adb -H 127.0.0.1 -P <lab-port> -s <lab-serial> reverse tcp:18656 tcp:18656`. In Film Shelf, enter `http://127.0.0.1:18656/config.json` as the VOD source. Restart the fixture to reset the one-time QR response. Remove only this reverse mapping when done. Do not grant broad storage access for a network-only acceptance test.

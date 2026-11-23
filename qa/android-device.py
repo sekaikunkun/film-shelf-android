@@ -11,6 +11,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 PACKAGE = "io.github.sekaikunkun.filmshelf"
+HOME_ACTIVITY = PACKAGE + "/com.fongmi.android.tv.ui.activity.HomeActivity"
 KEYS = ("UP", "DOWN", "LEFT", "RIGHT", "CENTER", "BACK", "ENTER", "MENU",
         "MEDIA_PLAY_PAUSE", "MEDIA_PAUSE", "MEDIA_PLAY")
 
@@ -40,8 +41,11 @@ def main():
     env = {k: v for k, v in os.environ.items() if k not in {"ADB_SERVER_SOCKET", "ANDROID_ADB_SERVER_PORT", "ANDROID_SERIAL"}}
 
     def command(prefix, *parts):
-        return subprocess.run(prefix + list(parts), env=env, check=True,
-                              stdout=subprocess.PIPE, timeout=60).stdout
+        result = subprocess.run(prefix + list(parts), env=env, stdout=subprocess.PIPE, timeout=60)
+        if result.returncode:
+            raise SystemExit(result.stdout.decode(errors="replace").strip()
+                             or f"Failed: {parts[0]} (exit {result.returncode})")
+        return result.stdout
 
     devices = command(adb, "devices").decode().splitlines()[1:]
     if [line.split() for line in devices if line.strip()] != [[args.serial, "device"]]:
@@ -80,8 +84,7 @@ def main():
             raise SystemExit("Installed base APK SHA-256 did not match")
         print(current)
     elif args.mode == "start":
-        print(shell("am", "start", "-W", "-a", "android.intent.action.MAIN",
-                    "-c", "android.intent.category.LEANBACK_LAUNCHER", "-p", PACKAGE))
+        print(shell("am", "start", "-W", "-n", HOME_ACTIVITY))
     elif args.mode == "ui":
         shell("uiautomator", "dump", "/data/local/tmp/film-shelf-qa.xml")
         tree = ET.fromstring(run("exec-out", "cat", "/data/local/tmp/film-shelf-qa.xml"))

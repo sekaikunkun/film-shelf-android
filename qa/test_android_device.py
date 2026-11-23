@@ -23,13 +23,16 @@ props = {('getprop', 'ro.kernel.qemu'): os.environ['FAKE_IS_EMULATOR'],
          ('getconf', 'PAGE_SIZE'): '16384'}
 if args[6] == 'shell' and tuple(args[7:]) in props:
     print(props[tuple(args[7:])])
+elif args[6:] == ['shell', 'am', 'start', '-W', '-n',
+                  'io.github.sekaikunkun.filmshelf/com.fongmi.android.tv.ui.activity.HomeActivity']:
+    print('Status: ok')
 else:
     raise RuntimeError('unexpected ADB command')
 """
 
 
 class DeviceBridgeTest(unittest.TestCase):
-    def run_bridge(self, devices, qemu="1", serial="emulator-5678", port="15084"):
+    def run_bridge(self, devices, qemu="1", serial="emulator-5678", port="15084", mode="device"):
         with tempfile.TemporaryDirectory() as scratch:
             adb = Path(scratch) / "adb"
             adb.write_text(FAKE_ADB, encoding="utf-8")
@@ -37,7 +40,7 @@ class DeviceBridgeTest(unittest.TestCase):
             env = dict(os.environ, FAKE_DEVICES=devices, FAKE_IS_EMULATOR=qemu,
                        ANDROID_SERIAL="not-this-device", ADB_SERVER_SOCKET="not-this-server")
             return subprocess.run([sys.executable, str(Path(__file__).with_name("android-device.py")),
-                                   "--adb", str(adb), "--port", port, "--serial", serial, "device"],
+                                   "--adb", str(adb), "--port", port, "--serial", serial, mode],
                                   env=env, capture_output=True, text=True, timeout=10)
 
     def test_probes_only_explicit_emulator(self):
@@ -63,3 +66,8 @@ class DeviceBridgeTest(unittest.TestCase):
         for kwargs in ({"port": "5037"}, {"serial": "USB123"}):
             with self.subTest(**kwargs):
                 self.assertEqual(self.run_bridge("", **kwargs).returncode, 2)
+
+    def test_starts_explicit_home_activity(self):
+        result = self.run_bridge("emulator-5678\tdevice", mode="start")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Status: ok", result.stdout)
