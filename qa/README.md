@@ -39,3 +39,7 @@ python3 qa/synthetic-provider.py qa-motion.mp4 --port 18656
 ```
 
 Configure only the **disposable emulator** to reach the loopback fixture through its dedicated ADB server and explicitly selected serial. For an existing dedicated session, use `adb -H 127.0.0.1 -P <lab-port> -s <lab-serial> reverse tcp:18656 tcp:18656`. In Film Shelf, enter `http://127.0.0.1:18656/config.json` as the VOD source. Restart the fixture to reset the one-time QR response. Remove only this reverse mapping when done. Do not grant broad storage access for a network-only acceptance test.
+
+For cross-source playback, repeat using the fixture's `/cross.json` catalog. Start the first supplier's Episode09, open cross-source results and verify that they retain the original episode name and offer EP01. The second supplier puts a playable trailer before EP01. Only `/cross01.mp4` may be probed or played. Wait for playback to advance after selecting the result; verify `/trailer.mp4` was never requested.
+
+For startup permission regression, leave all-files access off and cold-launch twice. Wait at least three seconds each time to cover the old delayed prompt, distinguish the separate Android notification prompt, then play the network fixture. Verify that entering one explicit local-file flow still provides its permission entry if needed; do not grant access.

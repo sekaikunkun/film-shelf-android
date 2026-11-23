@@ -27,6 +27,9 @@ AUTH = {"key":"qa-auth","name":"QR Fixture","type":4,"api":BASE+"/auth","searcha
 AUTH_DETAIL = dict(DETAIL, vod_id="same-auth", vod_name="QR acceptance",
     vod_play_from="Auth first$$$Auth alternative$$$Genuine timeout",
     vod_play_url="Episode09$challenge$$$09$success$$$Episode09$negated")
+CROSS_SITE = {"key":"qa-cross","name":"Cross-source Fixture","type":1,"api":BASE+"/cross","searchable":1}
+CROSS_DETAIL = dict(DETAIL, vod_id="cross-id", vod_play_from="Trailer-first fixture",
+    vod_play_url=f"Trailer${BASE}/trailer.mp4#EP01${BASE}/cross01.mp4")
 class Handler(BaseHTTPRequestHandler):
     challenges = 0
     def send_bytes(self,data,media_type,ranges=False):
@@ -48,6 +51,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         req=urlsplit(self.path); p=req.path; q=parse_qs(req.query)
         if p=="/config.json": payload={"sites":[SITE,AUTH]}
+        elif p=="/cross.json": payload={"sites":[SITE,CROSS_SITE]}
+        elif p=="/cross": payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[CROSS_DETAIL],"page":1,"pagecount":1,"total":1}
         elif p=="/qr.json": payload={"sites":[AUTH]}
         elif p=="/auth":
             play=q.get("play", [""])[0]
@@ -62,7 +67,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[AUTH_DETAIL],"page":1,"pagecount":1,"total":1}
         elif p=="/api": payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[DETAIL],"page":1,"pagecount":1,"total":1}
         elif p=="/fake09.mp4": self.send_bytes(b"<html>not video</html>","text/html"); return
-        elif p in ("/current09.mp4","/verified09.mp4","/manual09","/slow09.mp4"):
+        elif p in ("/current09.mp4","/verified09.mp4","/manual09","/slow09.mp4","/trailer.mp4","/cross01.mp4"):
             if p=="/slow09.mp4": time.sleep(12)
             self.send_bytes(MEDIA,"video/mp4",True); return
         else: self.send_error(404); return
