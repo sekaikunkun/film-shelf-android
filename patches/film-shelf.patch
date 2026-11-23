@@ -288,7 +288,7 @@ index 0000000000000000000000000000000000000000..9039cce9d16af67976893a48d38536af
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWait.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWait.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..5ff2e25c3039c1b84b35bf41183c19f7b4a1f84e
+index 0000000000000000000000000000000000000000..bfe506d2a5f2483e6bc30eaff493efdde2bfec69
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWait.java
 @@ -0,0 +1,61 @@
@@ -302,14 +302,14 @@ index 0000000000000000000000000000000000000000..5ff2e25c3039c1b84b35bf41183c19f7
 +    enum Failure { LOGIN, TIMEOUT, HARD }
 +
 +    private static final Pattern NO_LOGIN = Pattern.compile(
-+            "(?:(?:无[需须]|無[需須]|不用|不需要|毋須)\\s*(?:扫码|掃碼|扫二维码|掃二維碼)(?:\\s*(?:登录|登入|授权|授權))?"
-+            + "|(?:无[需须]|無[需須]|不用|不需要|毋須)\\s*(?:登录|登入)"
++            "(?:(?:无[需须]|無[需須]|不用|不需要?|不须|不須|不必|毋須)\\s*(?:扫码|掃碼|扫二维码|掃二維碼)(?:\\s*(?:登录|登入|授权|授權))?"
++            + "|(?:无[需须]|無[需須]|不用|不需要?|不须|不須|不必|毋須)\\s*(?:(?:会员|會員|账号|帳號|账户|帳戶)\\s*)?(?:登录|登入)"
 +            + "|(?:sign[ -]?in|log[ -]?in) (?:is )?not required|no (?:log[ -]?in|sign[ -]?in) required"
-+            + "|no need to (?:scan(?: (?:the )?qr(?: code)?)?|sign in|log in))");
++            + "|no (?:scan(?: (?:the )?qr(?: code)?)|qr(?: code)? scan) (?:is )?required|no need to (?:scan(?: (?:the )?qr(?: code)?)?|sign in|log in))");
 +    private static final Pattern LOGIN = Pattern.compile(
 +            "(?:请|請|需|先|等待)[^，。；、！？,.;!?\\r\\n]{0,8}(?:扫码|掃碼|扫二维码|掃二維碼|登录|登入)|"
 +            + "(?:扫码|掃碼)[^，。；、！？,.;!?\\r\\n]{0,8}(?:登录|登入|授权|授權|超[时時]|过期|過期)|(?:二维码|二維碼)[^，。；、！？,.;!?\\r\\n]{0,8}(?:失效|过期|過期)|(?:未登录|未登入|登录已过期|登入已過期)|"
-+            + "(?:scan (?:the )?qr(?: code)?|sign[ -]?in required|log[ -]?in required|please (?:sign in|log in))");
++            + "(?:scan (?:the )?qr(?: code)?|qr(?: code)? (?:has |is )?expired|sign[ -]?in required|log[ -]?in required|please (?:sign in|log in))");
 +    private static final Pattern TIMEOUT = Pattern.compile(
 +            "超[时時]|逾時|timed?[ -]?out|timeout|deadline exceeded");
 +
@@ -1333,10 +1333,10 @@ index 0000000000000000000000000000000000000000..ad5f7836f2e8de1c102041e8697b5d8b
 +<resources><string name="family_build_name">Film Shelf</string></resources>
 diff --git a/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWaitPolicyTest.java b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWaitPolicyTest.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..1d6af90a7934071b8bfb5816b4a861e7b3960745
+index 0000000000000000000000000000000000000000..86cf3ceb93d1e0651d9c4af254cf453eb1494f9d
 --- /dev/null
 +++ b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWaitPolicyTest.java
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,62 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import org.junit.Test;
@@ -1366,6 +1366,13 @@ index 0000000000000000000000000000000000000000..1d6af90a7934071b8bfb5816b4a861e7
 +                FamilyPlaybackWait.classifyFailure("旧版不用扫码登录；当前线路请扫码授权"));
 +        assertEquals(FamilyPlaybackWait.Failure.LOGIN,
 +                FamilyPlaybackWait.classifyFailure("Sign-in is not required on the old line. Please log in to use this line"));
++    }
++
++    @Test public void independentQaCoversNegatedAndExpiredQrChallenges() {
++        assertEquals(FamilyPlaybackWait.Failure.TIMEOUT, FamilyPlaybackWait.classifyFailure("不需扫码，网络连接超时"));
++        assertEquals(FamilyPlaybackWait.Failure.TIMEOUT, FamilyPlaybackWait.classifyFailure("无需会员登录，网络超时"));
++        assertEquals(FamilyPlaybackWait.Failure.HARD, FamilyPlaybackWait.classifyFailure("No scan QR code required"));
++        assertEquals(FamilyPlaybackWait.Failure.LOGIN, FamilyPlaybackWait.classifyFailure("QR code expired"));
 +    }
 +
 +    @Test public void focusedWaitStartsFreshWhenCoveredPastDeadline() {
