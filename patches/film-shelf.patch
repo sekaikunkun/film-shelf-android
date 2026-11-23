@@ -35,10 +35,10 @@ index 799122e0b6c1c43b0b4db890714cda722894103b..f11f47149060f984c5fd821bd5fce6b4
              android:launchMode="singleTop"
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..c440e8875ad0afb6d7c67710994eb56291dc11a8
+index 0000000000000000000000000000000000000000..a3aae68eeee166e3c8aefe32d2f49f8c0933be62
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java
-@@ -0,0 +1,299 @@
+@@ -0,0 +1,300 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import android.content.Context;
@@ -55,6 +55,7 @@ index 0000000000000000000000000000000000000000..c440e8875ad0afb6d7c67710994eb562
 +import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 +import androidx.media3.exoplayer.video.PlaceholderSurface;
 +
++import com.fongmi.android.tv.bean.DetailIdentity;
 +import com.fongmi.android.tv.bean.Episode;
 +import com.fongmi.android.tv.bean.Flag;
 +import com.fongmi.android.tv.bean.Result;
@@ -257,7 +258,7 @@ index 0000000000000000000000000000000000000000..c440e8875ad0afb6d7c67710994eb562
 +            BufferedSource body = response.body().source();
 +            if (body.request(DETAIL_BYTES + 1)) return null;
 +            Result result = Result.fromType(type, body.readUtf8());
-+            Vod exact = FamilyRouteProbePolicy.uniqueDetail(requested, result.getList(), Vod::getId);
++            Vod exact = DetailIdentity.find(requested, result.getList(), Vod::getId);
 +            return exact == null ? null : exact.setFlags();
 +        } finally {
 +            call = null;
@@ -407,17 +408,16 @@ index 0000000000000000000000000000000000000000..bfe506d2a5f2483e6bc30eaff493efdd
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..455d6d7ef9e94ba9317f4a291093980678a9cad8
+index 0000000000000000000000000000000000000000..575e6715cc9f2346cd2760e8717385491f51659c
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,107 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import java.net.URI;
 +import java.text.Normalizer;
 +import java.util.List;
 +import java.util.Locale;
-+import java.util.function.Function;
 +import java.util.regex.Pattern;
 +
 +final class FamilyRouteProbePolicy {
@@ -442,18 +442,6 @@ index 0000000000000000000000000000000000000000..455d6d7ef9e94ba9317f4a2910939806
 +
 +    static String identity(String site, String id) {
 +        return site.length() + ":" + site + id;
-+    }
-+
-+    // Detail endpoints can return unrelated rows alongside (or instead of) the requested title.
-+    static <T> T uniqueDetail(String requested, List<T> rows, Function<T, String> idOf) {
-+        if (requested == null || requested.isBlank()) return null;
-+        T match = null;
-+        for (T row : rows) {
-+            if (row == null || !requested.equals(idOf.apply(row))) continue;
-+            if (match != null) return null;
-+            match = row;
-+        }
-+        return match;
 +    }
 +
 +    // Match labels, never a playlist position: lists can omit episodes or be reversed.
@@ -1355,6 +1343,69 @@ index a27bd9c76cac73d5c9f185eab4cee0ca9ceff8b1..a82278f56e7c8aa7da7e4da95373cf83
          SpiderDebug.log("startup", "background services ready cost=%sms", System.currentTimeMillis() - time);
      }
  
+diff --git a/app/src/main/java/com/fongmi/android/tv/api/SiteApi.java b/app/src/main/java/com/fongmi/android/tv/api/SiteApi.java
+index 90c5546e622b7d02ac925d4a1337df218c10bbb4..bc8c6ef1ed0c012d934017d213aa2b2bfe49b9ba 100644
+--- a/app/src/main/java/com/fongmi/android/tv/api/SiteApi.java
++++ b/app/src/main/java/com/fongmi/android/tv/api/SiteApi.java
+@@ -9,6 +9,7 @@ import com.fongmi.android.tv.App;
+ import com.fongmi.android.tv.R;
+ import com.fongmi.android.tv.api.config.VodConfig;
+ import com.fongmi.android.tv.bean.Class;
++import com.fongmi.android.tv.bean.DetailIdentity;
+ import com.fongmi.android.tv.bean.Result;
+ import com.fongmi.android.tv.bean.Site;
+ import com.fongmi.android.tv.bean.Vod;
+@@ -137,6 +138,13 @@ public class SiteApi {
+             String detailContent = call(site, params);
+             SpiderDebug.log("detail", detailContent);
+             Result result = Result.fromType(site.getType(), detailContent);
++            // For plain catalogs, no provider- or position-based guessing after selecting a title.
++            if ((site.getType() == 0 || site.getType() == 1) && site.getExt().isEmpty()
++                    && site.getHeader().isEmpty() && site.getPlayUrl().isEmpty()) {
++                Vod exact = DetailIdentity.find(id, result.getList(), Vod::getId);
++                if (exact == null) return Result.empty();
++                result.setList(new ArrayList<>(List.of(exact)));
++            }
+             Source.get().parse(result.getVod().setFlags());
+             return result;
+         }
+@@ -230,17 +238,31 @@ public class SiteApi {
+     @NonNull
+     public static Result fetchPic(@NonNull Site site, @NonNull Result result) throws Exception {
+         if (site.getType() > 2 || result.getList().isEmpty() || !result.getVod().getPic().isEmpty()) return result;
++        ArrayList<Vod> filtered = new ArrayList<>();
+         ArrayList<String> ids = new ArrayList<>();
+-        boolean empty = site.getCategories().isEmpty();
+-        for (Vod item : result.getList()) if (empty || site.getCategories().contains(item.getTypeName())) ids.add(item.getId());
+-        if (ids.isEmpty()) return result.clear();
++        boolean unrestricted = site.getCategories().isEmpty();
++        for (Vod item : result.getList()) {
++            if (!unrestricted && !site.getCategories().contains(item.getTypeName())) continue;
++            filtered.add(item);
++            if (item.getPic().isEmpty() && !item.getId().isEmpty()) ids.add(item.getId());
++        }
++        result.setList(filtered);
++        if (ids.isEmpty()) return result;
+         ArrayMap<String, String> params = new ArrayMap<>();
+         params.put("ac", ac(site.getType()));
+         params.put("ids", TextUtils.join(",", ids));
+         try (Response response = OkHttp.newCall(site.getApi(), site.getHeader(), params).execute()) {
+-            result.setList(Result.fromType(site.getType(), response.body().string()).getList());
+-            return result;
++            if (!response.isSuccessful() || response.body() == null) return result;
++            Map<String, Vod> covers = DetailIdentity.indexUnique(
++                    Result.fromType(site.getType(), response.body().string()).getList(), Vod::getId);
++            for (Vod item : filtered) {
++                Vod row = covers.get(item.getId());
++                if (row != null) item.checkPic(row.getPic());
++            }
++        } catch (IOException ignored) {
++            // Missing artwork must not replace or discard the initial results.
+         }
++        return result;
+     }
+ 
+     private static void setTypes(@NonNull Site site, @NonNull Result result) {
 diff --git a/app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java b/app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java
 index 8f911f80e160c2eac7febe219b05f9adb1243a12..f9355b8ffb8c4e1d1fb7f8b13d07c6f337117b1e 100644
 --- a/app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java
@@ -1380,6 +1431,51 @@ index 8f911f80e160c2eac7febe219b05f9adb1243a12..f9355b8ffb8c4e1d1fb7f8b13d07c6f3
  
      private void initWall(Config config, JsonObject object) {
          if (Json.isEmpty(object, "wallpaper")) return;
+diff --git a/app/src/main/java/com/fongmi/android/tv/bean/DetailIdentity.java b/app/src/main/java/com/fongmi/android/tv/bean/DetailIdentity.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..675a77e8bcf38dfe9e0df2299322e7be08524ce3
+--- /dev/null
++++ b/app/src/main/java/com/fongmi/android/tv/bean/DetailIdentity.java
+@@ -0,0 +1,39 @@
++package com.fongmi.android.tv.bean;
++
++import java.util.HashMap;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Map;
++import java.util.Set;
++import java.util.function.Function;
++
++/** A detail response is not guaranteed to contain only the requested title. */
++public final class DetailIdentity {
++    private DetailIdentity() {}
++
++    public static <T> Map<String, T> indexUnique(List<T> rows, Function<T, String> idOf) {
++        Map<String, T> result = new HashMap<>();
++        Set<String> ambiguous = new HashSet<>();
++        for (T row : rows) {
++            if (row == null) continue;
++            String id = idOf.apply(row);
++            if (id == null || id.isBlank() || ambiguous.contains(id)) continue;
++            if (result.putIfAbsent(id, row) != null) {
++                result.remove(id);
++                ambiguous.add(id);
++            }
++        }
++        return result;
++    }
++
++    public static <T> T find(String requested, List<T> rows, Function<T, String> idOf) {
++        if (requested == null || requested.isBlank()) return null;
++        T match = null;
++        for (T row : rows) {
++            if (row == null || !requested.equals(idOf.apply(row))) continue;
++            if (match != null) return null;
++            match = row;
++        }
++        return match;
++    }
++}
 diff --git a/app/src/main/java/com/fongmi/android/tv/player/Source.java b/app/src/main/java/com/fongmi/android/tv/player/Source.java
 index d7e8ee6d445d09a8235bf41a9437093a6034644e..c7b486f479837a91aa459f71a4fa79ef2ed5cc38 100644
 --- a/app/src/main/java/com/fongmi/android/tv/player/Source.java
@@ -1582,11 +1678,13 @@ index 0000000000000000000000000000000000000000..86cf3ceb93d1e0651d9c4af254cf453e
 +}
 diff --git a/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..9221f7a37f31018363212fd37c72dcfc3e5d6437
+index 0000000000000000000000000000000000000000..bc13767c36b89de1522e13d8dd97d46676c1c402
 --- /dev/null
 +++ b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,107 @@
 +package com.fongmi.android.tv.ui.activity;
++
++import com.fongmi.android.tv.bean.DetailIdentity;
 +
 +import org.junit.Test;
 +
@@ -1661,10 +1759,20 @@ index 0000000000000000000000000000000000000000..9221f7a37f31018363212fd37c72dcfc
 +        record Detail(String id, String title) {}
 +        Detail unrelated = new Detail("other", "Same apparent title");
 +        Detail requested = new Detail("wanted", "Same apparent title");
-+        assertSame(requested, FamilyRouteProbePolicy.uniqueDetail("wanted", List.of(unrelated, requested), Detail::id));
-+        assertNull(FamilyRouteProbePolicy.uniqueDetail("wanted", List.of(unrelated), Detail::id));
-+        assertNull(FamilyRouteProbePolicy.uniqueDetail("wanted", List.of(requested, requested), Detail::id));
-+        assertNull(FamilyRouteProbePolicy.uniqueDetail(" ", List.of(new Detail(" ", "No id")), Detail::id));
++        assertSame(requested, DetailIdentity.find("wanted", List.of(unrelated, requested), Detail::id));
++        assertNull(DetailIdentity.find("wanted", List.of(unrelated), Detail::id));
++        assertNull(DetailIdentity.find("wanted", List.of(requested, requested), Detail::id));
++        assertNull(DetailIdentity.find(" ", List.of(new Detail(" ", "No id")), Detail::id));
++    }
++
++    @Test public void catalogArtworkIndexDoesNotPromoteAmbiguousRows() {
++        record Detail(String id, String cover) {}
++        Detail valid = new Detail("valid", "real-cover");
++        var rows = DetailIdentity.indexUnique(List.of(new Detail("duplicate", "one"), valid,
++                new Detail("duplicate", "two"), new Detail("", "none"), new Detail("duplicate", "three")), Detail::id);
++        assertSame(valid, rows.get("valid"));
++        assertFalse(rows.containsKey("duplicate"));
++        assertFalse(rows.containsKey(""));
 +    }
 +
 +    @Test public void crossSourceStartsAtActualEpisodeOneRatherThanFirstListEntry() {

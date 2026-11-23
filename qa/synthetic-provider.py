@@ -42,6 +42,9 @@ DETAIL_LOCK = Lock()
 
 def detail_rows(case, is_detail):
     if not is_detail:
+        # Keep the changing provider's detail counter for the scan and switch requests.
+        if case == "changes":
+            return [dict(CROSS_DETAIL, vod_pic=BASE+"/qa-cover.png")]
         return [CROSS_DETAIL]
     if case == "ordered":
         return [WRONG_DETAIL, CROSS_DETAIL]
@@ -93,6 +96,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[AUTH_DETAIL],"page":1,"pagecount":1,"total":1}
         elif p=="/api": payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[DETAIL],"page":1,"pagecount":1,"total":1}
+        elif p=="/qa-cover.png": self.send_error(404); return
         elif p=="/fake09.mp4": self.send_bytes(b"<html>not video</html>","text/html"); return
         elif p in ("/current09.mp4","/verified09.mp4","/manual09","/slow09.mp4","/trailer.mp4","/cross01.mp4","/wrong-title.mp4"):
             if p=="/slow09.mp4": time.sleep(12)
