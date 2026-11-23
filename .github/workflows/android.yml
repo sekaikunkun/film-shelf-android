@@ -16,6 +16,8 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.10"
+      - name: Check synthetic QA bridge and private report boundary
+        run: python3 -m unittest discover -s qa
       - name: Select JDK 21 and install Android SDK components
         run: |
           echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"

@@ -45,3 +45,41 @@ For cross-source playback, repeat using the fixture's `/cross.json` catalog. Sta
 For detail-identity regression, use `/cross-identity.json`. Search from the original Episode09, then scan the four synthetic suppliers. `Identity ordered` returns the wrong ID first with the same title; it must still find the requested item. `Identity wrong-only` and `Identity duplicate` must remain unconfirmed and neither may trigger a media request. `Identity changes` is valid during scanning, then returns a different ID with the *same* episode label and URL when selected. Click it first: it must show “未切换” and keep the original Episode09 playing. Then reopen the scan and select `Identity ordered`; EP01 must advance. Check the fixture log: no request to `/wrong-title.mp4` or `/trailer.mp4`, and the rejected choice must not make a new playback request. Restart the fixture to reset the changing-detail counter.
 
 For startup permission regression, leave all-files access off and cold-launch twice. Wait at least three seconds each time to cover the old delayed prompt, distinguish the separate Android notification prompt, then play the network fixture. Verify that entering one explicit local-file flow still provides its permission entry if needed; do not grant access.
+
+## Private local acceptance: fixed-field report
+
+Use `private-check.py` only on a dedicated disposable local emulator using a
+trusted ADB binary. Complete the full synthetic suite with the raw bridge
+first, then stop its log, screen, and UI capture jobs. Never run the raw bridge
+on a private source. Do not pass a source URL, PIN, or token to the observer.
+Import only an authorized source locally through the normal UI; don't send
+operator input, Android diagnostics or screenshots to CI, chat or cloud
+storage. The service providing the source still receives ordinary playback
+requests. Use normal login; don't capture, relay, or decode a login QR code.
+
+For the progression check, start playing and show the playback controls so
+the clock is visible; leave the device untouched during the two samples.
+For the login check, first bring up the app's explicit login prompt.
+
+```sh
+python3 qa/private-check.py --port 15084 --serial emulator-5678 --source A --scenario playback
+python3 qa/private-check.py --port 15084 --serial emulator-5678 --source B --scenario login_wait
+```
+
+The command emits a single JSON line. The source is a manually assigned label
+A–H, not a provider name. `pass` means the visible playback clock advanced; it
+does not prove first-frame latency, episode identity, or successful failover.
+`requires_login` means the app's explicit login dialog was recognized.
+`unconfirmed` is not a playback failure; the clock or dialog may be hidden.
+`capture_unavailable` is an observer error, not a provider verdict.
+
+The observer discards ADB stderr, never collects images or logcat, and reads
+a bounded accessibility snapshot into local memory. Android's dumper uses a
+unique restricted temporary file **inside the guest**, with a timeout and
+cleanup trap; it is never exported. Turn off sync, shared folders and snapshot
+saving on the private lab. After acceptance, close and discard the disposable
+test environment according to your data-handling policy.
+
+The public unit tests only use an ADB stand-in and synthetic canaries. They
+assert exact allowed results and no URL, token, title, or QR test string on
+stdout or stderr, including malformed, oversized and timed-out captures.
