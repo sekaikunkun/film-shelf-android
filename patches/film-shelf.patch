@@ -547,9 +547,18 @@ index 4a19e318ebfecc29646e4efed18d37419b3a3c0a..6f1a6f9299628c73b9dbd7059ab2307d
          else if (item.getResId() == R.string.home_search) SearchActivity.start(this);
          else if (item.getResId() == R.string.home_setting) SettingActivity.start(this);
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
-index 5a1e119bc160e402f144f7c6afb21818b5696949..1e292b324186ecbe2b886a376aeeadec0ed2696a 100644
+index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be880754fde6 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
+@@ -1123,7 +1123,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+         } else {
+             mBinding.name.setText(getName());
+             App.post(mR4, 10000);
+-            checkSearch(false);
++            checkAutoSearch();
+         }
+     }
+ 
 @@ -1178,7 +1178,307 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          };
      }
@@ -898,14 +907,14 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..1e292b324186ecbe2b886a376aeeadec
      private void onChange() {
 -        checkSearch(true);
 +        if (mFlagAdapter.getItemCount() < 2 || mEpisodeAdapter.getItemCount() == 0 || familyLoginWait) {
-+            checkSearch(true);
++            openFamilyCrossSearch();
 +            return;
 +        }
 +        AlertDialog options = new MaterialAlertDialogBuilder(this)
 +                .setTitle("换源")
 +                .setItems(new String[]{"检测本来源的当前集", "查找其他来源"}, (dialog, which) -> {
 +                    if (which == 0) startFamilyLocalScan();
-+                    else checkSearch(true);
++                    else openFamilyCrossSearch();
 +                })
 +                .setNegativeButton("取消", null).create();
 +        options.setOnDismissListener(dismissed -> {
@@ -987,7 +996,31 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..1e292b324186ecbe2b886a376aeeadec
                  mKaraokeResultShown = false;
                  recordPlayHealth(true, "");
                  hideProgress();
-@@ -5730,7 +6094,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5665,14 +6029,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+ 
+     private void checkFlag() {
+         int position = isGone(mBinding.flag) ? -1 : mFlagAdapter.getPosition();
+-        if (position == mFlagAdapter.getItemCount() - 1) checkSearch(false);
++        if (position == mFlagAdapter.getItemCount() - 1) checkAutoSearch();
+         else nextFlag(position);
+     }
+ 
+-    private void checkSearch(boolean force) {
+-        if (!force && !PlayerSetting.isAutoChange()) return;
++    private void openFamilyCrossSearch() {
++        String title = mBinding.name.getText().toString().trim();
++        if (!title.isEmpty()) initSearch(title, false);
++    }
++
++    private void checkAutoSearch() {
++        if (!PlayerSetting.isAutoChange() || mQuickSearchDialog != null || familyScanDialog != null) return;
+         if (mQuickAdapter.getItemCount() == 0) initSearch(mBinding.name.getText().toString(), true);
+-        else if (isAutoMode() || force) nextSite();
++        else if (isAutoMode()) nextSite();
+     }
+ 
+     private void initSearch(String keyword, boolean auto) {
+@@ -5730,7 +6099,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
              mQuickSearchDialog.addAll(items);
              return;
          }
@@ -996,7 +1029,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..1e292b324186ecbe2b886a376aeeadec
          dialog.dismissListener(d -> {
              if (mQuickSearchDialog != dialog) return;
              mQuickSearchDialog = null;
-@@ -5748,14 +6112,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5748,14 +6117,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      public void onItemClick(Vod item) {
@@ -1016,7 +1049,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..1e292b324186ecbe2b886a376aeeadec
          String keyword = Objects.toString(mBinding.part.getTag(), "");
          if (isAutoMode()) return !item.getName().equals(keyword);
          else return !item.getName().contains(keyword);
-@@ -5779,7 +6146,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5779,7 +6151,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          Vod item = mQuickAdapter.get(position);
          Notify.show(getString(R.string.play_switch_site, item.getSiteName()));
          mQuickAdapter.remove(position);
@@ -1025,7 +1058,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..1e292b324186ecbe2b886a376aeeadec
          setInitAuto(false);
          applySearchArtwork(item);
          getDetail(item);
-@@ -6323,6 +6690,21 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6323,6 +6695,21 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          if (service() != null) refreshLyrics();
      }
  
@@ -1047,7 +1080,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..1e292b324186ecbe2b886a376aeeadec
      @Override
      protected void onStop() {
          super.onStop();
-@@ -6354,6 +6736,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6354,6 +6741,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void finishVideoPlaybackNow() {
@@ -1055,7 +1088,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..1e292b324186ecbe2b886a376aeeadec
          mViewModel.stopSearch();
          saveHistory(true);
          markPlaybackExiting();
-@@ -6364,6 +6747,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6364,6 +6752,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      protected void onDestroy() {
