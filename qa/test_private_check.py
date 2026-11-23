@@ -17,6 +17,7 @@ FAKE_ADB = """#!/usr/bin/env python3
 import os, sys
 from pathlib import Path
 a = sys.argv[1:]
+Path(__file__).with_name('adb-called').touch()
 assert a[:4] == ['-H', '127.0.0.1', '-P', '15084']
 assert not os.environ.get('ADB_SERVER_SOCKET')
 print('URL_CANARY TOKEN_CANARY TITLE_CANARY QR_CANARY', file=sys.stderr)
@@ -84,7 +85,7 @@ def media(position, timestamp, state="PLAYING(3)", package=CHECK.PACKAGE, sessio
 
 
 class PrivateCheckTest(unittest.TestCase):
-    def invoke(self, one="", two="", scenario="playback", mode="ok", source="A"):
+    def invoke(self, one="", two="", scenario="playback", mode="ok", source="A", verified=True):
         with tempfile.TemporaryDirectory() as scratch:
             adb = Path(scratch) / "adb"
             adb.write_text(FAKE_ADB)
@@ -93,9 +94,12 @@ class PrivateCheckTest(unittest.TestCase):
                 adb.with_name("next").with_suffix(suffix).write_text(payload, encoding="utf-8")
             result = subprocess.run([sys.executable, str(SCRIPT), "--adb", str(adb),
                                      "--port", "15084", "--serial", "emulator-5678",
-                                     "--source", source, "--scenario", scenario],
+                                     "--source", source, "--scenario", scenario]
+                                    + (["--selection-verified"] if verified else []),
                                     env=dict(os.environ, MODE=mode, ADB_SERVER_SOCKET="don't forward"),
                                     capture_output=True, text=True, timeout=16)
+            if not verified:
+                self.assertFalse(adb.with_name("adb-called").exists())
             self.assertEqual(result.stderr, "")
             for canary in MARKERS:
                 self.assertNotIn(canary, result.stdout + result.stderr)
@@ -114,6 +118,16 @@ class PrivateCheckTest(unittest.TestCase):
                 self.assertEqual(code, 0)
                 self.assertEqual(report, {"source": "A", "scenario": scenario, "outcome": expected,
                                           "progress_advanced": progress})
+
+    def test_rejected_switch_cannot_credit_prior_playback_to_new_alias(self):
+        prior = (media(5_000, 52_000), media(8_000, 55_000))
+        self.assertEqual(self.invoke(*prior, source="B", verified=False),
+                         (0, {"source": "B", "scenario": "playback",
+                              "outcome": "unconfirmed", "progress_advanced": None}))
+        self.assertEqual(self.invoke(sample(login=True), sample(login=True),
+                                     scenario="login_wait", source="B", verified=False),
+                         (0, {"source": "B", "scenario": "login_wait",
+                              "outcome": "unconfirmed", "progress_advanced": None}))
 
     def test_errors_and_timeout_never_echo_raw_capture(self):
         for mode in ("error", "oversize", "multiple", "timeout", "ok"):

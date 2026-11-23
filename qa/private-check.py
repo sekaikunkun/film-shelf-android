@@ -163,6 +163,8 @@ def run(argv):
     parser.add_argument("--serial", required=True)
     parser.add_argument("--source", choices=SOURCE_LABELS, required=True)
     parser.add_argument("--scenario", choices=SCENARIOS, required=True)
+    parser.add_argument("--selection-verified", action="store_true",
+                        help="operator verified the active provider and episode in the local UI")
     try:
         args = parser.parse_args(argv)
         if not re.fullmatch(r"emulator-[0-9]{4,5}", args.serial) or not 1024 <= args.port <= 65535 or args.port == 5037:
@@ -170,10 +172,14 @@ def run(argv):
     except InvalidInput:
         print('{"outcome":"invalid_input"}')
         return 2
-    try:
-        outcome, advanced = observe(args)
-    except (CaptureError, OSError, UnicodeError, ValueError, ET.ParseError, KeyboardInterrupt):
-        outcome, advanced = "capture_unavailable", None
+    outcome, advanced = "unconfirmed", None
+    # A reporting label is not source evidence. Do not sample an unverified
+    # selection (such as a rejected switch that left the old source playing).
+    if args.selection_verified:
+        try:
+            outcome, advanced = observe(args)
+        except (CaptureError, OSError, UnicodeError, ValueError, ET.ParseError, KeyboardInterrupt):
+            outcome, advanced = "capture_unavailable", None
     # No free text, UI selectors, positions, route labels, error details or durations.
     print(json.dumps({"source": args.source, "scenario": args.scenario,
                       "outcome": outcome, "progress_advanced": advanced},

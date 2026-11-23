@@ -57,7 +57,16 @@ operator input, Android diagnostics or screenshots to CI, chat or cloud
 storage. The service providing the source still receives ordinary playback
 requests. Use normal login; don't capture, relay, or decode a login QR code.
 
-For the progression check, start playback and leave the device untouched
+For a fresh source check, stop any prior playback. Select the requested
+provider and a known episode, and confirm both in the ordinary app UI on
+the local device. For a switch check, confirm both **after** switching. A
+rejected switch can leave the old episode playing; if it did, or if
+attribution is uncertain, run for the requested alias **without**
+`--selection-verified`. It will record `unconfirmed` without sampling ADB.
+Keep the provider-to-alias mapping local and never enter actual names,
+episode labels, URLs, or login details in the command or report.
+
+For the progression check, leave the device untouched
 during both samples, including the four-second interval. Controls may stay
 hidden. To reproduce locally, load the synthetic fixture's `/observer.json`
 catalog: Playback Lab plays one generated video, and QR Lab produces an
@@ -65,17 +74,20 @@ explicit login requirement without a real code. This fixture changes the
 media path when the file bytes change, so a prior run's cached bytes cannot
 contaminate the test after regenerating the video.
 
-For the login check, first bring up the app's explicit login prompt.
+For the login check, confirm the intended local selection before opening
+the app's explicit login prompt, and do not change sources during the check.
 
 ```sh
-python3 qa/private-check.py --port 15084 --serial emulator-5678 --source A --scenario playback
-python3 qa/private-check.py --port 15084 --serial emulator-5678 --source B --scenario login_wait
+python3 qa/private-check.py --port 15084 --serial emulator-5678 --source A --scenario playback --selection-verified
+python3 qa/private-check.py --port 15084 --serial emulator-5678 --source B --scenario login_wait --selection-verified
 ```
 
 The command emits a single JSON line. The source is a manually assigned label
-A–H, not a provider name. `pass` means two native Android reports from the
-same active app session showed playback progressing; it
-does not prove first-frame latency, episode identity, or successful failover.
+A–H, not a provider name. `--selection-verified` is a local operator check,
+not automatic provider or episode detection. `pass` means two native Android
+reports from the same active app session showed playback progressing after
+that check. It does not independently prove identity, first-frame latency, or
+successful failover.
 `requires_login` means the app's explicit login dialog was recognized.
 `unconfirmed` is not a playback failure; it includes pause, missing or stale
 position reports, and an unrecognized dialog.
