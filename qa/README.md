@@ -57,10 +57,14 @@ operator input, Android diagnostics or screenshots to CI, chat or cloud
 storage. The service providing the source still receives ordinary playback
 requests. Use normal login; don't capture, relay, or decode a login QR code.
 
-For the progression check, enter fullscreen while playing and press Down to
-show the lower playback controls immediately before running the observer.
-Leave the device untouched during the two samples. The center pause/scrub
-preview is not a playback clock.
+For the progression check, start playback and leave the device untouched
+during both samples, including the four-second interval. Controls may stay
+hidden. To reproduce locally, load the synthetic fixture's `/observer.json`
+catalog: Playback Lab plays one generated video, and QR Lab produces an
+explicit login requirement without a real code. This fixture changes the
+media path when the file bytes change, so a prior run's cached bytes cannot
+contaminate the test after regenerating the video.
+
 For the login check, first bring up the app's explicit login prompt.
 
 ```sh
@@ -69,14 +73,17 @@ python3 qa/private-check.py --port 15084 --serial emulator-5678 --source B --sce
 ```
 
 The command emits a single JSON line. The source is a manually assigned label
-A–H, not a provider name. `pass` means the visible playback clock advanced; it
+A–H, not a provider name. `pass` means two native Android reports from the
+same active app session showed playback progressing; it
 does not prove first-frame latency, episode identity, or successful failover.
 `requires_login` means the app's explicit login dialog was recognized.
-`unconfirmed` is not a playback failure; the clock or dialog may be hidden.
+`unconfirmed` is not a playback failure; it includes pause, missing or stale
+position reports, and an unrecognized dialog.
 `capture_unavailable` is an observer error, not a provider verdict.
 
 The observer discards ADB stderr, never collects images or logcat, and reads
-a bounded accessibility snapshot into local memory. Android's dumper uses a
+bounded media-session or accessibility snapshots into local memory. It does
+not export raw media metadata or window text. Android's UI dumper uses a
 unique restricted temporary file **inside the guest**, with a timeout and
 cleanup trap; it is never exported. Turn off sync, shared folders and snapshot
 saving on the private lab. After acceptance, close and discard the disposable

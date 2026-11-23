@@ -2,7 +2,6 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-from copy import deepcopy
 import subprocess
 import sys
 import tempfile
@@ -17,7 +16,6 @@ MARKERS = ("URL_CANARY", "TOKEN_CANARY", "TITLE_CANARY", "QR_CANARY")
 FAKE_ADB = """#!/usr/bin/env python3
 import os, sys
 from pathlib import Path
-from copy import deepcopy
 a = sys.argv[1:]
 assert a[:4] == ['-H', '127.0.0.1', '-P', '15084']
 assert not os.environ.get('ADB_SERVER_SOCKET')
@@ -29,8 +27,9 @@ if a[4:] == ['devices']:
         print('another-device\\tdevice')
 elif a[4:] == ['-s','emulator-5678','shell','getprop','ro.kernel.qemu']:
     print('1')
-elif a[4:7] == ['-s','emulator-5678','exec-out']:
-    assert 'uiautomator dump' in a[7]
+elif a[4:7] == ['-s','emulator-5678','exec-out'] or a[4:] == ['-s','emulator-5678','shell','dumpsys','media_session']:
+    if a[6] == 'exec-out':
+        assert 'uiautomator dump' in a[7]
     assert all(x not in ' '.join(a) for x in ('screencap', 'logcat'))
     p = Path(__file__).with_name('next')
     if os.environ['MODE'] == 'timeout':
@@ -51,27 +50,37 @@ else:
 """
 
 
-def sample(position=None, login=False, lookalike=False, preview=None):
+def sample(login=False, lookalike=False):
     root = ET.Element("hierarchy")
     for field, canary in zip(("api", "token", "name", "code"), MARKERS):
         ET.SubElement(root, "node", package=CHECK.PACKAGE,
                       text="https://example.invalid/" + canary,
                       attrib={"resource-id": CHECK.PACKAGE + ":id/" + field,
                               "content-desc": canary})
-    def node(parent, rid, text=""):
-        return ET.SubElement(parent, "node", package=CHECK.PACKAGE, text=text,
-                             attrib={"resource-id": CHECK.PACKAGE + ":id/" + rid})
-
-    if position:
-        node(node(node(root, "control"), "seek"), "position", position)
-    if preview:
-        node(node(root, "center"), "position", preview)
     if login or lookalike:
         for rid, value in zip(("alertTitle", "message", "button2", "button1"),
                               ("需要扫码或登录", "完成验证后，选择重试播放。", "继续等待", "重试播放")):
             ET.SubElement(root, "node", package=CHECK.PACKAGE, text=value,
                           attrib={"resource-id": CHECK.PACKAGE + ":id/" + (rid if login else "name")})
     return ET.tostring(root, encoding="unicode")
+
+
+def media(position, timestamp, state="PLAYING(3)", package=CHECK.PACKAGE, session=3):
+    speed = "0.0" if state == "PAUSED(2)" else "1.0"
+    return (
+        f"    Media3 Lab/{session} (userId=0)\n"
+        "      ownerPid=20, ownerUid=30, userId=0\n"
+        f"      package={package}\n"
+        "      launchIntent=null\n"
+        "      mediaButtonReceiver=null\n"
+        "      active=true\n"
+        "      flags=7\n"
+        "      rating type=0\n"
+        "      controllers: 3\n"
+        f"      state=PlaybackState {{state={state}, position={position}, "
+        f"buffered position=50000, speed={speed}, updated={timestamp}, actions=123}}\n"
+        "      metadata: size=5, description=TITLE_CANARY URL_CANARY TOKEN_CANARY QR_CANARY\n"
+    )
 
 
 class PrivateCheckTest(unittest.TestCase):
@@ -95,13 +104,10 @@ class PrivateCheckTest(unittest.TestCase):
 
     def test_playback_and_login_path_emit_only_fixed_report(self):
         for one, two, scenario, expected, progress in (
-            (sample("00:05", lookalike=True, preview="00:15"), sample("00:08", preview="00:30"), "playback", "pass", True),
-            (sample(preview="00:15"), sample(preview="00:30"), "playback", "unconfirmed", None),
-            (sample("00:05"), sample(), "playback", "unconfirmed", None),
-            (sample("00:05", preview="00:15"), sample("00:05", preview="00:30"), "playback", "unconfirmed", False),
+            (media(5_000, 52_000), media(8_000, 55_000), "playback", "pass", True),
+            (media(5_000, 52_000, "PAUSED(2)"), media(5_000, 52_000, "PAUSED(2)"), "playback", "unconfirmed", False),
             (sample(login=True), sample(login=True), "login_wait", "requires_login", None),
-            (sample("00:05"), sample("00:05"), "playback", "unconfirmed", False),
-            (sample("00:52"), sample("00:01"), "playback", "unconfirmed", None),
+            (sample(lookalike=True), sample(login=True), "login_wait", "unconfirmed", None),
         ):
             with self.subTest(scenario=scenario, expected=expected):
                 code, report = self.invoke(one, two, scenario)
@@ -112,7 +118,7 @@ class PrivateCheckTest(unittest.TestCase):
     def test_errors_and_timeout_never_echo_raw_capture(self):
         for mode in ("error", "oversize", "multiple", "timeout", "ok"):
             with self.subTest(mode=mode):
-                code, report = self.invoke("<hierarchy>QR_CANARY", mode=mode)
+                code, report = self.invoke("<hierarchy>QR_CANARY", scenario="login_wait", mode=mode)
                 self.assertEqual(code, 2)
                 self.assertEqual(report["outcome"], "capture_unavailable")
 
@@ -120,10 +126,14 @@ class PrivateCheckTest(unittest.TestCase):
         self.assertEqual(self.invoke(source="URL_CANARY"),
                          (2, {"outcome": "invalid_input"}))
 
-    def test_rejects_foreign_position_and_ambiguous_clock(self):
-        data = sample("00:32").replace('package="' + CHECK.PACKAGE, 'package="another.app')
-        self.assertEqual(CHECK.decode_snapshot(data.encode()), (False, None))
-        data = sample("00:32")
-        tree = ET.fromstring(data)
-        tree.append(deepcopy(tree[-1]))
-        self.assertEqual(CHECK.decode_snapshot(ET.tostring(tree)), (False, None))
+    def test_rejects_foreign_duplicate_invalid_or_changed_sessions(self):
+        valid = media(5_000, 52_000)
+        for raw in (media(5_000, 52_000, package="another.app"), valid + valid,
+                    valid.replace("active=true", "active=false")):
+            self.assertIsNone(CHECK.media_position(raw.encode()))
+        first = CHECK.media_position(valid.encode())
+        for raw in (media(8_000, 55_000, session=8), media(8_000, 52_000),
+                    media(28_000, 55_000), media(3_000, 55_000),
+                    media(8_000, 55_000, "PAUSED(2)")):
+            self.assertIsNone(CHECK.playback_progress(first, CHECK.media_position(raw.encode())))
+        self.assertIs(CHECK.playback_progress(first, first), False)

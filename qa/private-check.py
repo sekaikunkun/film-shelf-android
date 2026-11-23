@@ -62,22 +62,7 @@ def decode_snapshot(data):
     root = ET.fromstring(data)
     if root.tag != "hierarchy":
         raise CaptureError
-    texts, positions = set(), []
-    parents = {child: parent for parent in root.iter() for child in parent}
-
-    def within_seek_control(node):
-        wanted = iter((PACKAGE + ":id/seek", PACKAGE + ":id/control"))
-        expected = next(wanted)
-        while node in parents:
-            node = parents[node]
-            if node.tag != "node" or node.get("package") != PACKAGE:
-                return False
-            if node.get("resource-id") == expected:
-                expected = next(wanted, None)
-                if expected is None:
-                    return True
-        return False
-
+    texts = set()
     for node in root.iter("node"):
         if node.get("package") != PACKAGE:
             continue
@@ -85,12 +70,50 @@ def decode_snapshot(data):
         value = node.get("text", "")
         if value in AUTH_DIALOG and resource in {"alertTitle", "message", "button1", "button2"}:
             texts.add(value)
-        if node.get("resource-id") == PACKAGE + ":id/position" and within_seek_control(node):
-            m = re.fullmatch(r"(?:(\d{1,2}):)?([0-5]?\d):([0-5]\d)", value)
-            if m:
-                h, minute, sec = (int(part or 0) for part in m.groups())
-                positions.append(h * 3600 + minute * 60 + sec)
-    return AUTH_DIALOG == texts, positions[0] if len(positions) == 1 else None
+    return AUTH_DIALOG == texts
+
+
+SESSION = re.compile(
+    r"^ {4}[^\n]+ \(userId=\d+\)\n"
+    r" {6}ownerPid=\d+, ownerUid=\d+, userId=\d+\n"
+    r" {6}package=[^\n]+\n"
+    r"(?: {6}(?:launchIntent|mediaButtonReceiver)=[^\n]*\n)*"
+    r" {6}active=true\n"
+    r"(?: {6}(?:flags=|rating type=|controllers:)[^\n]*\n)*"
+    r" {6}state=PlaybackState \{state=(PLAYING\(3\)|PAUSED\(2\)), position=(\d{1,14}), "
+    r"buffered position=-?\d+, speed=(-?\d+(?:\.\d+)?), updated=(\d{1,16}),",
+    re.MULTILINE,
+)
+
+
+def media_position(raw):
+    rows = []
+    for match in SESSION.finditer(raw.decode()):
+        lines = match.group().splitlines()
+        if lines[2] != "      package=" + PACKAGE:
+            continue
+        state, position, speed, updated = match.groups()
+        if (state == "PLAYING(3)" and 0 < float(speed) <= 4) or (state == "PAUSED(2)" and float(speed) == 0):
+            rows.append((tuple(lines[:2]), state, int(position), int(updated)))
+    return rows[0] if len(rows) == 1 else None
+
+
+def playback_progress(first, second):
+    if first is None or second is None or first[:2] != second[:2]:
+        return None
+    _, state, pos1, time1 = first
+    _, _, pos2, time2 = second
+    if state == "PAUSED(2)":
+        return False if pos1 == pos2 else None
+    # Require new reported samples, not a clock extrapolated from a static
+    # Android state. Reject regression, large jumps and stale updates.
+    delta = pos2 - pos1
+    elapsed = time2 - time1
+    if delta == 0:
+        return False
+    if 0 < elapsed <= 10_000 and 0 < delta <= min(20_000, 4 * elapsed + 250):
+        return True
+    return None
 
 
 def observe(args):
@@ -114,18 +137,23 @@ def observe(args):
     def snapshot():
         return decode_snapshot(capture(target + ["exec-out", dump], env))
 
-    login1, pos1 = snapshot()
-    if args.scenario == "playback" and login1:
-        return "requires_login", None
-    time.sleep(3 if args.scenario == "login_wait" else 1)
-    login2, pos2 = snapshot()
     if args.scenario == "login_wait":
-        return ("requires_login" if login1 and login2 else "unconfirmed"), None
-    if login2:
+        first = snapshot()
+        time.sleep(3)
+        return ("requires_login" if first and snapshot() else "unconfirmed"), None
+
+    def media():
+        return media_position(capture(target + ["shell", "dumpsys", "media_session"], env))
+
+    first = media()
+    time.sleep(4)
+    second = media()
+    advanced = playback_progress(first, second)
+    if advanced is True:
+        return "pass", True
+    if advanced is None and snapshot():
         return "requires_login", None
-    if pos1 is None or pos2 is None or pos2 < pos1 or pos2 - pos1 > 20:
-        return "unconfirmed", None
-    return ("pass", True) if pos2 > pos1 else ("unconfirmed", False)
+    return "unconfirmed", advanced
 
 
 def run(argv):

@@ -3,7 +3,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
 from threading import Lock
-import argparse, json, re, time
+import argparse, hashlib, json, re, time
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("video", type=Path, help="locally generated H.264 MP4; do not use private media")
 parser.add_argument("--port", type=int, default=18656)
@@ -28,6 +28,16 @@ AUTH = {"key":"qa-auth","name":"QR Fixture","type":4,"api":BASE+"/auth","searcha
 AUTH_DETAIL = dict(DETAIL, vod_id="same-auth", vod_name="QR acceptance",
     vod_play_from="Auth first$$$Auth alternative$$$Genuine timeout",
     vod_play_url="Episode09$challenge$$$09$success$$$Episode09$negated")
+# The playback observer's fixture gives different files different paths, even
+# when the lab reuses the same local port and the player's disk cache persists.
+OBSERVER_MEDIA = "/observer/" + hashlib.sha256(MEDIA).hexdigest() + "/media.mp4"
+OBSERVER_SITE = dict(SITE, key="qa-observer", name="Playback Lab", api=BASE+"/observer")
+OBSERVER_AUTH = dict(AUTH, key="qa-observer-auth", name="QR Lab", api=BASE+"/observer-auth")
+OBSERVER_DETAIL = dict(DETAIL, vod_id="observer-playback", vod_name="Observer Lab TITLE_CANARY",
+                       vod_play_from="Lab", vod_play_url=f"EP01${BASE}{OBSERVER_MEDIA}")
+OBSERVER_AUTH_DETAIL = dict(AUTH_DETAIL, vod_id="observer-auth", vod_name="QR Lab TITLE_CANARY",
+                            vod_play_from="Waiting", vod_play_url="EP01$wait")
+
 CROSS_SITE = {"key":"qa-cross","name":"Cross-source Fixture","type":1,"api":BASE+"/cross","searchable":1}
 CROSS_DETAIL = dict(DETAIL, vod_id="cross-id", vod_play_from="Trailer-first fixture",
     vod_play_url=f"Trailer${BASE}/trailer.mp4#EP01${BASE}/cross01.mp4")
@@ -77,6 +87,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         req=urlsplit(self.path); p=req.path; q=parse_qs(req.query)
         if p=="/config.json": payload={"sites":[SITE,AUTH]}
+        elif p=="/observer.json": payload={"sites":[OBSERVER_SITE, OBSERVER_AUTH]}
+        elif p=="/observer": payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[OBSERVER_DETAIL],"page":1,"pagecount":1,"total":1}
+        elif p=="/observer-auth":
+            if q.get("play") == ["wait"]:
+                payload={"msg":"QR code expired", "url":""}
+            else:
+                payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[OBSERVER_AUTH_DETAIL],"page":1,"pagecount":1,"total":1}
+        elif p==OBSERVER_MEDIA:
+            self.send_bytes(MEDIA,"video/mp4",True); return
         elif p=="/cross.json": payload={"sites":[SITE,CROSS_SITE]}
         elif p=="/cross-identity.json": payload={"sites":[SITE,*IDENTITY_SITES]}
         elif p.startswith("/identity/") and p.split("/")[-1] in CROSS_CASES:
