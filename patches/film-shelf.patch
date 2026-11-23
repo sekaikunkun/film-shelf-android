@@ -35,10 +35,10 @@ index 799122e0b6c1c43b0b4db890714cda722894103b..f11f47149060f984c5fd821bd5fce6b4
              android:launchMode="singleTop"
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..49a3cb3fcb6ee3fdc1efcc15307bde458587d095
+index 0000000000000000000000000000000000000000..c440e8875ad0afb6d7c67710994eb56291dc11a8
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,299 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import android.content.Context;
@@ -68,6 +68,7 @@ index 0000000000000000000000000000000000000000..49a3cb3fcb6ee3fdc1efcc15307bde45
 +import java.util.concurrent.ExecutorService;
 +import java.util.concurrent.Executors;
 +import java.util.concurrent.TimeUnit;
++import java.util.function.Consumer;
 +
 +import okhttp3.Call;
 +import okhttp3.HttpUrl;
@@ -130,6 +131,47 @@ index 0000000000000000000000000000000000000000..49a3cb3fcb6ee3fdc1efcc15307bde45
 +        this.routes = List.copyOf(routes);
 +    }
 +
++    FamilyDirectRouteScan(Context context) {
++        this(context, Collections.emptyList(), (Listener) null);
++    }
++
++    void revalidate(Outcome outcome, Consumer<Vod> callback) {
++        worker.execute(() -> {
++            Vod found;
++            try {
++                Vod exact = loadExactDetail(outcome.candidate());
++                found = exact != null && containsRoute(exact, outcome.playable()) ? exact : null;
++            } catch (IOException | RuntimeException ignored) {
++                found = null;
++            }
++            Vod delivered = found;
++            main.post(() -> {
++                if (!active) return;
++                close();
++                callback.accept(delivered);
++            });
++        });
++    }
++
++    private static boolean containsRoute(Vod vod, Route expected) {
++        if (expected == null) return false;
++        int matches = 0;
++        for (Flag flag : vod.getFlags()) {
++            if (!expected.flag().equals(flag.getFlag())) continue;
++            List<Episode> episodes = flag.getEpisodes();
++            int index = firstEpisode(episodes);
++            if (index < 0) continue;
++            Episode episode = episodes.get(index);
++            if (expected.episode().equals(episode.getName()) && expected.url().equals(episode.getUrl())) matches++;
++        }
++        return matches == 1;
++    }
++
++    private static int firstEpisode(List<Episode> episodes) {
++        return FamilyRouteProbePolicy.initialEpisodeIndex(
++                episodes.stream().map(Episode::getName).collect(java.util.stream.Collectors.toList()));
++    }
++
 +    void start() {
 +        if (local == null) nextSource();
 +        else nextRoute();
@@ -180,36 +222,43 @@ index 0000000000000000000000000000000000000000..49a3cb3fcb6ee3fdc1efcc15307bde45
 +    }
 +
 +    private List<Route> loadRoutes(Candidate candidate) throws IOException {
++        Vod exact = loadExactDetail(candidate);
++        if (exact == null) return Collections.emptyList();
++        List<Route> found = new ArrayList<>();
++        for (Flag flag : exact.getFlags()) {
++            List<Episode> episodes = flag.getEpisodes();
++            int index = firstEpisode(episodes);
++            if (index < 0) continue;
++            Episode first = episodes.get(index);
++            if (FamilyRouteProbePolicy.directMedia(first.getUrl())) {
++                found.add(new Route(flag.getFlag(), first.getName(), first.getUrl()));
++                if (found.size() == FamilyRouteProbePolicy.ROUTE_LIMIT) break;
++            }
++        }
++        return found;
++    }
++
++    private Vod loadExactDetail(Candidate candidate) throws IOException {
 +        Site site = candidate.site();
 +        int type = site.getType();
 +        if (!FamilyRouteProbePolicy.plainCatalog(type, !site.getExt().isEmpty(), !site.getHeader().isEmpty(), !site.getPlayUrl().isEmpty()))
-+            return Collections.emptyList();
++            return null;
 +        HttpUrl api = HttpUrl.parse(site.getApi());
-+        if (api == null || !api.username().isEmpty() || !api.password().isEmpty())
-+            return Collections.emptyList();
++        String requested = candidate.vod().getId();
++        if (requested.isEmpty() || api == null || !api.username().isEmpty() || !api.password().isEmpty())
++            return null;
 +        HttpUrl url = api.newBuilder().setQueryParameter("ac", type == 0 ? "videolist" : "detail")
-+                .setQueryParameter("ids", candidate.vod().getId()).build();
++                .setQueryParameter("ids", requested).build();
 +        Call request = http.newCall(new Request.Builder().url(url).build());
 +        call = request;
-+        if (worker.isShutdown()) { request.cancel(); return Collections.emptyList(); }
++        if (worker.isShutdown()) { request.cancel(); return null; }
 +        try (Response response = request.execute()) {
-+            if (!response.isSuccessful()) return Collections.emptyList();
++            if (!response.isSuccessful() || response.body() == null) return null;
 +            BufferedSource body = response.body().source();
-+            if (body.request(DETAIL_BYTES + 1)) return Collections.emptyList();
++            if (body.request(DETAIL_BYTES + 1)) return null;
 +            Result result = Result.fromType(type, body.readUtf8());
-+            List<Route> found = new ArrayList<>();
-+            for (Flag flag : result.getVod().setFlags().getFlags()) {
-+                List<Episode> episodes = flag.getEpisodes();
-+                int index = FamilyRouteProbePolicy.initialEpisodeIndex(
-+                        episodes.stream().map(Episode::getName).collect(java.util.stream.Collectors.toList()));
-+                if (index < 0) continue;
-+                Episode first = episodes.get(index);
-+                if (FamilyRouteProbePolicy.directMedia(first.getUrl())) {
-+                    found.add(new Route(flag.getFlag(), first.getName(), first.getUrl()));
-+                    if (found.size() == FamilyRouteProbePolicy.ROUTE_LIMIT) break;
-+                }
-+            }
-+            return found;
++            Vod exact = FamilyRouteProbePolicy.uniqueDetail(requested, result.getList(), Vod::getId);
++            return exact == null ? null : exact.setFlags();
 +        } finally {
 +            call = null;
 +        }
@@ -358,16 +407,17 @@ index 0000000000000000000000000000000000000000..bfe506d2a5f2483e6bc30eaff493efdd
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..575e6715cc9f2346cd2760e8717385491f51659c
+index 0000000000000000000000000000000000000000..455d6d7ef9e94ba9317f4a291093980678a9cad8
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,120 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import java.net.URI;
 +import java.text.Normalizer;
 +import java.util.List;
 +import java.util.Locale;
++import java.util.function.Function;
 +import java.util.regex.Pattern;
 +
 +final class FamilyRouteProbePolicy {
@@ -392,6 +442,18 @@ index 0000000000000000000000000000000000000000..575e6715cc9f2346cd2760e871738549
 +
 +    static String identity(String site, String id) {
 +        return site.length() + ":" + site + id;
++    }
++
++    // Detail endpoints can return unrelated rows alongside (or instead of) the requested title.
++    static <T> T uniqueDetail(String requested, List<T> rows, Function<T, String> idOf) {
++        if (requested == null || requested.isBlank()) return null;
++        T match = null;
++        for (T row : rows) {
++            if (row == null || !requested.equals(idOf.apply(row))) continue;
++            if (match != null) return null;
++            match = row;
++        }
++        return match;
 +    }
 +
 +    // Match labels, never a playlist position: lists can omit episodes or be reversed.
@@ -547,10 +609,30 @@ index 4a19e318ebfecc29646e4efed18d37419b3a3c0a..6f1a6f9299628c73b9dbd7059ab2307d
          else if (item.getResId() == R.string.home_search) SearchActivity.start(this);
          else if (item.getResId() == R.string.home_setting) SettingActivity.start(this);
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
-index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be880754fde6 100644
+index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567e90a247e 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
-@@ -1123,7 +1123,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1084,6 +1084,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+     }
+ 
+     private void getDetail(Vod item) {
++        prepareProviderSwitch(item);
++        getDetail();
++    }
++
++    private void prepareProviderSwitch(Vod item) {
+         revealManualSearch = false;
+         if (!isAutoMode()) mViewModel.stopSearch();
+         saveHistory();
+@@ -1098,7 +1103,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+             player().reset();
+             player().stop();
+         }
+-        getDetail();
+     }
+ 
+     private void setDetail(Result result) {
+@@ -1123,7 +1127,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          } else {
              mBinding.name.setText(getName());
              App.post(mR4, 10000);
@@ -559,7 +641,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
          }
      }
  
-@@ -1178,7 +1178,307 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1178,7 +1182,338 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          };
      }
  
@@ -755,13 +837,44 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
 +        dialog.getListView().setOnItemClickListener((parent, view, position, id) -> {
 +            FamilyDirectRouteScan.Outcome outcome = results.get(position);
 +            if (outcome.playable() == null) return;
++            revalidateFamilySwitch(outcome);
++        });
++    }
++
++    private void revalidateFamilySwitch(FamilyDirectRouteScan.Outcome outcome) {
++        String sourceKey = getKey();
++        String vodId = getId();
++        Episode episode = mEpisodeAdapter.getItemCount() > 0 ? getEpisode() : null;
++        Flag flag = mFlagAdapter.getItemCount() > 0 ? getFlag() : null;
++        cancelFamilyScan();
++        AlertDialog progress = new MaterialAlertDialogBuilder(this)
++                .setTitle("正在确认线路")
++                .setMessage("确认后才会切换，当前播放不会中断。")
++                .setNegativeButton("取消", null)
++                .create();
++        familyScanDialog = progress;
++        progress.setOnDismissListener(dialog -> {
++            if (familyScanDialog == progress) cancelFamilyScan();
++        });
++        familyScan = new FamilyDirectRouteScan(this);
++        progress.show();
++        familyScan.revalidate(outcome, verified -> {
++            if (familyScanDialog != progress || !familyResumed || isFinishing() || isDestroyed()) return;
 +            cancelFamilyScan();
-+            familyScanSelection = outcome;
++            boolean playbackUnchanged = getKey().equals(sourceKey) && getId().equals(vodId)
++                    && (mEpisodeAdapter.getItemCount() > 0 ? getEpisode() : null) == episode
++                    && (mFlagAdapter.getItemCount() > 0 ? getFlag() : null) == flag;
++            if (verified == null || service() == null || familyLoginWait || !playbackUnchanged) {
++                Notify.show("线路或影片已变化，未切换");
++                return;
++            }
 +            stopFamilyWait();
 +            setAutoMode(false);
 +            Vod item = outcome.candidate().vod();
 +            applySearchArtwork(item);
-+            getDetail(item);
++            prepareProviderSwitch(item);
++            familyScanSelection = outcome;
++            setDetail(verified);
 +        });
 +    }
 +
@@ -867,7 +980,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
          mBinding.widget.title.setText(getString(R.string.detail_title, mBinding.name.getText(), episode.getName()));
          playerStartTime = System.currentTimeMillis();
          beginPlayHealth();
-@@ -1208,6 +1508,12 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1208,6 +1543,12 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      private void setPlayer(Result result) {
          if (isFinishing() || isDestroyed()) return;
@@ -880,7 +993,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
          SpiderDebug.log("video-flow", "player finish cost=%dms useParse=%s multi=%s msg=%s", System.currentTimeMillis() - playerStartTime, result.shouldUseParse(), result.getUrl().isMulti(), result.getMsg());
          if (service() == null) {
              mPendingPlayer = result;
-@@ -1257,6 +1563,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1257,6 +1598,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      public void onItemClick(Flag item) {
@@ -891,7 +1004,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
          if (isFinishing() || isDestroyed() || mFlagAdapter.getItemCount() == 0 || item.isSelected()) return;
          int oldPosition = mFlagAdapter.getSelectedPosition();
          mFlagAdapter.setSelected(item);
-@@ -1265,7 +1575,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1265,7 +1610,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          notifyItemsChanged(mBinding.flag, mFlagAdapter, oldPosition, newPosition);
          setEpisodeAdapter(item.getEpisodes());
          setQualityVisible(false);
@@ -901,7 +1014,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
      }
  
      private void setEpisodeAdapter(List<Episode> items) {
-@@ -2471,7 +2782,23 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -2471,7 +2817,23 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void onChange() {
@@ -926,7 +1039,12 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
      }
  
      private void onFullscreen() {
-@@ -3643,8 +3970,33 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -3640,11 +4002,36 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+     }
+ 
+     private void checkFlag(Vod item) {
++        FamilyDirectRouteScan.Outcome chosen = familyScanSelection;
++        familyScanSelection = null;
          boolean empty = item.getFlags().isEmpty();
          mBinding.flag.setVisibility(empty ? View.GONE : View.VISIBLE);
          if (empty) {
@@ -934,10 +1052,8 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
 +            familyError = "";
 +            App.post(familyTick, 500);
          } else {
-+            FamilyDirectRouteScan.Outcome chosen = familyScanSelection;
-+            familyScanSelection = null;
 +            if (chosen != null && getKey().equals(chosen.candidate().vod().getSiteKey())
-+                    && getId().equals(chosen.candidate().vod().getId())) {
++                    && getId().equals(chosen.candidate().vod().getId()) && getId().equals(item.getId())) {
 +                FamilyDirectRouteScan.Route route = chosen.playable();
 +                for (Flag flag : item.getFlags()) {
 +                    if (!flag.getFlag().equals(route.flag())) continue;
@@ -961,7 +1077,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
              onItemClick(mHistory.getFlag());
              if (mHistory.isRevSort()) reverseEpisode(true);
          }
-@@ -5460,6 +5812,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5460,6 +5847,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      protected void onError(String msg) {
@@ -980,7 +1096,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
          recordPlayHealth(false, msg);
          Track.delete(player().getKey());
          mClock.setCallback(null);
-@@ -5469,7 +5833,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5469,7 +5868,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          player().reset();
          player().stop();
          showError(msg);
@@ -988,7 +1104,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
      }
  
      @Override
-@@ -5495,6 +5858,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5495,6 +5893,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                  showProgress();
                  break;
              case Player.STATE_READY:
@@ -996,7 +1112,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
                  mKaraokeResultShown = false;
                  recordPlayHealth(true, "");
                  hideProgress();
-@@ -5665,14 +6029,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5665,14 +6064,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      private void checkFlag() {
          int position = isGone(mBinding.flag) ? -1 : mFlagAdapter.getPosition();
@@ -1020,7 +1136,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
      }
  
      private void initSearch(String keyword, boolean auto) {
-@@ -5730,7 +6099,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5730,7 +6134,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
              mQuickSearchDialog.addAll(items);
              return;
          }
@@ -1029,7 +1145,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
          dialog.dismissListener(d -> {
              if (mQuickSearchDialog != dialog) return;
              mQuickSearchDialog = null;
-@@ -5748,14 +6117,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5748,14 +6152,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      public void onItemClick(Vod item) {
@@ -1049,7 +1165,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
          String keyword = Objects.toString(mBinding.part.getTag(), "");
          if (isAutoMode()) return !item.getName().equals(keyword);
          else return !item.getName().contains(keyword);
-@@ -5779,7 +6151,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5779,7 +6186,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          Vod item = mQuickAdapter.get(position);
          Notify.show(getString(R.string.play_switch_site, item.getSiteName()));
          mQuickAdapter.remove(position);
@@ -1058,7 +1174,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
          setInitAuto(false);
          applySearchArtwork(item);
          getDetail(item);
-@@ -6323,6 +6695,21 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6323,6 +6730,21 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          if (service() != null) refreshLyrics();
      }
  
@@ -1080,7 +1196,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
      @Override
      protected void onStop() {
          super.onStop();
-@@ -6354,6 +6741,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6354,6 +6776,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void finishVideoPlaybackNow() {
@@ -1088,7 +1204,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..0941b6b89285bf5775521490ca36be88
          mViewModel.stopSearch();
          saveHistory(true);
          markPlaybackExiting();
-@@ -6364,6 +6752,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6364,6 +6787,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      protected void onDestroy() {
@@ -1466,10 +1582,10 @@ index 0000000000000000000000000000000000000000..86cf3ceb93d1e0651d9c4af254cf453e
 +}
 diff --git a/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..56496ccd622a8c44422838ce4c46920136d7e6c7
+index 0000000000000000000000000000000000000000..9221f7a37f31018363212fd37c72dcfc3e5d6437
 --- /dev/null
 +++ b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,95 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import org.junit.Test;
@@ -1539,6 +1655,16 @@ index 0000000000000000000000000000000000000000..56496ccd622a8c44422838ce4c469201
 +                    status != FamilyRouteProbePolicy.LocalStatus.NO_MATCH && status != FamilyRouteProbePolicy.LocalStatus.PROBE,
 +                    FamilyRouteProbePolicy.canSelect(status));
 +        }
++    }
++
++    @Test public void crossSourceRequiresTheUniqueRequestedDetailRegardlessOfOrder() {
++        record Detail(String id, String title) {}
++        Detail unrelated = new Detail("other", "Same apparent title");
++        Detail requested = new Detail("wanted", "Same apparent title");
++        assertSame(requested, FamilyRouteProbePolicy.uniqueDetail("wanted", List.of(unrelated, requested), Detail::id));
++        assertNull(FamilyRouteProbePolicy.uniqueDetail("wanted", List.of(unrelated), Detail::id));
++        assertNull(FamilyRouteProbePolicy.uniqueDetail("wanted", List.of(requested, requested), Detail::id));
++        assertNull(FamilyRouteProbePolicy.uniqueDetail(" ", List.of(new Detail(" ", "No id")), Detail::id));
 +    }
 +
 +    @Test public void crossSourceStartsAtActualEpisodeOneRatherThanFirstListEntry() {

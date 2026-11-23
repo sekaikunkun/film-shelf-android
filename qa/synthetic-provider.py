@@ -2,6 +2,7 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
+from threading import Lock
 import argparse, json, re, time
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("video", type=Path, help="locally generated H.264 MP4; do not use private media")
@@ -30,6 +31,28 @@ AUTH_DETAIL = dict(DETAIL, vod_id="same-auth", vod_name="QR acceptance",
 CROSS_SITE = {"key":"qa-cross","name":"Cross-source Fixture","type":1,"api":BASE+"/cross","searchable":1}
 CROSS_DETAIL = dict(DETAIL, vod_id="cross-id", vod_play_from="Trailer-first fixture",
     vod_play_url=f"Trailer${BASE}/trailer.mp4#EP01${BASE}/cross01.mp4")
+WRONG_DETAIL = dict(CROSS_DETAIL, vod_id="not-requested",
+    vod_play_url=f"EP01${BASE}/wrong-title.mp4")
+WRONG_SAME_ROUTE = dict(CROSS_DETAIL, vod_id="not-requested")
+CROSS_CASES = ("ordered", "wrong-only", "duplicate", "changes")
+IDENTITY_SITES = [dict(CROSS_SITE, key="qa-cross-"+case, name="Identity "+case,
+    api=BASE+"/identity/"+case) for case in CROSS_CASES]
+DETAIL_CALLS = {}
+DETAIL_LOCK = Lock()
+
+def detail_rows(case, is_detail):
+    if not is_detail:
+        return [CROSS_DETAIL]
+    if case == "ordered":
+        return [WRONG_DETAIL, CROSS_DETAIL]
+    if case == "wrong-only":
+        return [WRONG_DETAIL]
+    if case == "duplicate":
+        return [CROSS_DETAIL, CROSS_DETAIL]
+    with DETAIL_LOCK:
+        DETAIL_CALLS[case] = DETAIL_CALLS.get(case, 0) + 1
+        return [CROSS_DETAIL] if DETAIL_CALLS[case] == 1 else [WRONG_SAME_ROUTE]
+
 class Handler(BaseHTTPRequestHandler):
     challenges = 0
     def send_bytes(self,data,media_type,ranges=False):
@@ -52,6 +75,10 @@ class Handler(BaseHTTPRequestHandler):
         req=urlsplit(self.path); p=req.path; q=parse_qs(req.query)
         if p=="/config.json": payload={"sites":[SITE,AUTH]}
         elif p=="/cross.json": payload={"sites":[SITE,CROSS_SITE]}
+        elif p=="/cross-identity.json": payload={"sites":[SITE,*IDENTITY_SITES]}
+        elif p.startswith("/identity/") and p.split("/")[-1] in CROSS_CASES:
+            rows=detail_rows(p.split("/")[-1], q.get("ids") == ["cross-id"])
+            payload={"class":[{"type_id":1,"type_name":"QA"}],"list":rows,"page":1,"pagecount":1,"total":len(rows)}
         elif p=="/cross": payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[CROSS_DETAIL],"page":1,"pagecount":1,"total":1}
         elif p=="/qr.json": payload={"sites":[AUTH]}
         elif p=="/auth":
@@ -67,7 +94,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[AUTH_DETAIL],"page":1,"pagecount":1,"total":1}
         elif p=="/api": payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[DETAIL],"page":1,"pagecount":1,"total":1}
         elif p=="/fake09.mp4": self.send_bytes(b"<html>not video</html>","text/html"); return
-        elif p in ("/current09.mp4","/verified09.mp4","/manual09","/slow09.mp4","/trailer.mp4","/cross01.mp4"):
+        elif p in ("/current09.mp4","/verified09.mp4","/manual09","/slow09.mp4","/trailer.mp4","/cross01.mp4","/wrong-title.mp4"):
             if p=="/slow09.mp4": time.sleep(12)
             self.send_bytes(MEDIA,"video/mp4",True); return
         else: self.send_error(404); return
