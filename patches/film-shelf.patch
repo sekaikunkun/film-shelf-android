@@ -470,18 +470,23 @@ index 0000000000000000000000000000000000000000..575e6715cc9f2346cd2760e871738549
 +    }
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
-index 4a19e318ebfecc29646e4efed18d37419b3a3c0a..3e2930dcee765e41b192ef94e0a0539c1334f62b 100644
+index 4a19e318ebfecc29646e4efed18d37419b3a3c0a..6f1a6f9299628c73b9dbd7059ab2307d6c7f1862 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
-@@ -157,7 +157,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -156,8 +156,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+     private void initAfterFirstFrame() {
          SpiderDebug.log("startup", "home first frame cost=%sms", System.currentTimeMillis() - App.time());
          App.post(this::initConfig, 80);
-         App.post(() -> PermissionUtil.requestFile(this, allGranted -> PermissionUtil.requestNotify(this)), 1800);
+-        App.post(() -> PermissionUtil.requestFile(this, allGranted -> PermissionUtil.requestNotify(this)), 1800);
 -        App.post(() -> DLNARendererService.start(this), 2500);
++        // Network playback does not require storage access. Explicit local file actions request it separately.
++        App.post(() -> {
++            if (!isFinishing() && !isDestroyed()) PermissionUtil.requestNotify(this);
++        }, 1800);
      }
  
      private void runAfterFirstFrame(Runnable runnable) {
-@@ -246,7 +245,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -246,7 +248,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      private void checkType(Intent intent) {
          if ("text/plain".equals(intent.getType()) || UrlUtil.path(intent.getData()).endsWith(".m3u")) {
@@ -490,7 +495,7 @@ index 4a19e318ebfecc29646e4efed18d37419b3a3c0a..3e2930dcee765e41b192ef94e0a0539c
          } else {
              VideoActivity.push(this, intent.getData().toString());
          }
-@@ -323,7 +322,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -323,7 +325,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      private void initConfig() {
          SpiderDebug.log("startup", "config load start cost=%sms", System.currentTimeMillis() - App.time());
          VodConfig.get().init().load(getCallback());
@@ -498,7 +503,7 @@ index 4a19e318ebfecc29646e4efed18d37419b3a3c0a..3e2930dcee765e41b192ef94e0a0539c
          WallConfig.get().init();
      }
  
-@@ -367,14 +365,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -367,14 +368,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          SpiderDebug.log("startup", "webview prewarm end cost=%sms", System.currentTimeMillis() - App.time());
      }
  
@@ -513,7 +518,7 @@ index 4a19e318ebfecc29646e4efed18d37419b3a3c0a..3e2930dcee765e41b192ef94e0a0539c
  
      private void setFocus() {
          mBinding.title.setSelected(true);
-@@ -462,7 +452,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -462,7 +455,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      private void setFunc() {
          List<Func> items = new ArrayList<>();
@@ -521,7 +526,7 @@ index 4a19e318ebfecc29646e4efed18d37419b3a3c0a..3e2930dcee765e41b192ef94e0a0539c
          items.add(Func.create(R.string.home_search));
          items.add(Func.create(R.string.home_keep));
          items.add(Func.create(R.string.home_push));
-@@ -520,9 +509,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -520,9 +512,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
              case COMMON:
                  setFunc();
                  break;
@@ -531,7 +536,7 @@ index 4a19e318ebfecc29646e4efed18d37419b3a3c0a..3e2930dcee765e41b192ef94e0a0539c
          }
      }
  
-@@ -586,8 +572,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -586,8 +575,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      @Override
      public void onItemClick(Func item) {
