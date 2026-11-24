@@ -2443,3 +2443,127 @@ index 087f899..73d5796 100644
  
  dependencyResolutionManagement {
      repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+diff --git a/app/src/leanback/res/layout/adapter_keyboard_text.xml b/app/src/leanback/res/layout/adapter_keyboard_text.xml
+--- a/app/src/leanback/res/layout/adapter_keyboard_text.xml
++++ b/app/src/leanback/res/layout/adapter_keyboard_text.xml
+@@ -6,7 +6,7 @@
+     android:layout_height="40dp"
+     android:background="@drawable/selector_keyboard"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:gravity="center"
+     android:textColor="@color/white"
+     android:textSize="16sp"
+diff --git a/app/src/leanback/res/layout/adapter_keyboard_icon.xml b/app/src/leanback/res/layout/adapter_keyboard_icon.xml
+--- a/app/src/leanback/res/layout/adapter_keyboard_icon.xml
++++ b/app/src/leanback/res/layout/adapter_keyboard_icon.xml
+@@ -7,5 +7,5 @@
+     android:background="@drawable/selector_keyboard"
+     android:focusable="true"
+     android:scaleType="center"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     tools:src="@drawable/ic_keyboard_back" />
+\ No newline at end of file
+diff --git a/app/src/leanback/res/layout/adapter_search.xml b/app/src/leanback/res/layout/adapter_search.xml
+--- a/app/src/leanback/res/layout/adapter_search.xml
++++ b/app/src/leanback/res/layout/adapter_search.xml
+@@ -3,7 +3,7 @@
+     android:layout_width="match_parent"
+     android:layout_height="wrap_content"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:foreground="@drawable/selector_vod">
+
+     <androidx.appcompat.widget.AppCompatImageView
+diff --git a/app/src/leanback/res/layout/adapter_search_word.xml b/app/src/leanback/res/layout/adapter_search_word.xml
+--- a/app/src/leanback/res/layout/adapter_search_word.xml
++++ b/app/src/leanback/res/layout/adapter_search_word.xml
+@@ -8,7 +8,7 @@
+     android:background="@drawable/selector_item_round"
+     android:ellipsize="marquee"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:singleLine="true"
+     android:textColor="@color/white"
+     android:textSize="16sp"
+diff --git a/app/src/leanback/res/layout/adapter_search_hot_word.xml b/app/src/leanback/res/layout/adapter_search_hot_word.xml
+--- a/app/src/leanback/res/layout/adapter_search_hot_word.xml
++++ b/app/src/leanback/res/layout/adapter_search_hot_word.xml
+@@ -7,7 +7,7 @@
+     android:layout_margin="4dp"
+     android:background="@drawable/selector_search_hot_word"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:gravity="center"
+     android:paddingStart="10dp"
+     android:paddingEnd="10dp"
+diff --git a/app/src/leanback/res/layout/adapter_search_record.xml b/app/src/leanback/res/layout/adapter_search_record.xml
+--- a/app/src/leanback/res/layout/adapter_search_record.xml
++++ b/app/src/leanback/res/layout/adapter_search_record.xml
+@@ -8,7 +8,7 @@
+     android:background="@drawable/selector_item_round"
+     android:ellipsize="marquee"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:singleLine="true"
+     android:textColor="@color/white"
+     android:textSize="16sp"
+diff --git a/app/src/leanback/res/layout/adapter_quick.xml b/app/src/leanback/res/layout/adapter_quick.xml
+--- a/app/src/leanback/res/layout/adapter_quick.xml
++++ b/app/src/leanback/res/layout/adapter_quick.xml
+@@ -5,7 +5,7 @@
+     android:layout_height="wrap_content"
+     android:background="@drawable/selector_video_item"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:orientation="vertical">
+
+     <com.google.android.material.textview.MaterialTextView
+diff --git a/app/src/leanback/res/drawable/selector_keyboard.xml b/app/src/leanback/res/drawable/selector_keyboard.xml
+--- a/app/src/leanback/res/drawable/selector_keyboard.xml
++++ b/app/src/leanback/res/drawable/selector_keyboard.xml
+@@ -1,5 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:drawable="@drawable/shape_keyboard_focused" android:state_pressed="true" />
+     <item android:drawable="@drawable/shape_keyboard_focused" android:state_focused="true" />
+     <item android:drawable="@drawable/shape_keyboard_normal" />
+ </selector>
+\ No newline at end of file
+diff --git a/app/src/leanback/res/drawable/selector_vod.xml b/app/src/leanback/res/drawable/selector_vod.xml
+--- a/app/src/leanback/res/drawable/selector_vod.xml
++++ b/app/src/leanback/res/drawable/selector_vod.xml
+@@ -1,4 +1,5 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:drawable="@drawable/shape_vod_focused" android:state_pressed="true" />
+     <item android:drawable="@drawable/shape_vod_focused" android:state_focused="true" />
+ </selector>
+\ No newline at end of file
+diff --git a/app/src/leanback/res/drawable/selector_item_round.xml b/app/src/leanback/res/drawable/selector_item_round.xml
+--- a/app/src/leanback/res/drawable/selector_item_round.xml
++++ b/app/src/leanback/res/drawable/selector_item_round.xml
+@@ -1,5 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:drawable="@drawable/shape_item_round_focused" android:state_pressed="true" />
+     <item android:drawable="@drawable/shape_item_round_focused" android:state_focused="true" />
+     <item android:drawable="@drawable/shape_item_round_activated" android:state_selected="true" />
+     <item android:drawable="@drawable/shape_item_round_normal" />
+diff --git a/app/src/leanback/res/drawable/selector_search_hot_word.xml b/app/src/leanback/res/drawable/selector_search_hot_word.xml
+--- a/app/src/leanback/res/drawable/selector_search_hot_word.xml
++++ b/app/src/leanback/res/drawable/selector_search_hot_word.xml
+@@ -1,5 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:drawable="@drawable/shape_search_hot_word_focused" android:state_pressed="true" />
+     <item android:drawable="@drawable/shape_search_hot_word_focused" android:state_focused="true" />
+     <item android:drawable="@drawable/shape_search_hot_word_normal" />
+ </selector>

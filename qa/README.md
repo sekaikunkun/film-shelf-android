@@ -137,7 +137,10 @@ a different item focused. Do not add a second tap or a D-pad confirmation:
   choices open on the first tap. Choose a different route deliberately:
   merely opening Change must not perform a switch. Swiping a list must not
   perform clicks; verify long-press remains separate.
-- Repeat first-tap tests for **Search** and one episode or route chip. With
-  remote input, directional keys must move focus, and D-pad Center must
-  continue to activate the selected action. The video surface and input
-  fields intentionally retain their distinct focus behavior.
+- In **Search**, tap one unfocused on-screen key once and check that the
+  editable keyword changes exactly once. Submit the query, then tap a
+  synthetic result card. Also check a search history chip and a quick-search
+  result when available. A single tap should select each item, not just focus it.
+- Repeat the check for one episode or route chip. With remote input,
+  directional keys must move focus and D-pad Center must activate the selected
+  action. The video surface and editable inputs retain touch-focus behavior.
