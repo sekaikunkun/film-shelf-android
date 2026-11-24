@@ -2,6 +2,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${1:?prepared source directory required}"
+python3 "$root/scripts/check-touch-layouts.py"
 bash gradlew --no-daemon --max-workers=3 \
   :app:testLeanbackArm64_v8aDebugUnitTest \
   --tests 'com.fongmi.android.tv.ui.activity.FamilyPlaybackWaitPolicyTest' \

@@ -1306,6 +1306,17 @@ index d3c6f8c..0c61338 100644
          setOnClickListener(holder, view -> listener.onItemClick(item));
          holder.view.setOnLongClickListener(view -> listener.onLongClick(item));
          holder.view.setOnKeyListener((view, keyCode, event) -> onKeyDown(view, event));
+diff --git a/app/src/leanback/res/drawable/selector_chip.xml b/app/src/leanback/res/drawable/selector_chip.xml
+index a0c828d..0d8767a 100644
+--- a/app/src/leanback/res/drawable/selector_chip.xml
++++ b/app/src/leanback/res/drawable/selector_chip.xml
+@@ -1,5 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:drawable="@drawable/shape_chip_focused" android:state_pressed="true" />
+     <item android:drawable="@drawable/shape_chip_focused" android:state_focused="true" />
+     <item android:drawable="@drawable/shape_chip_activated" android:state_selected="true" />
+     <item android:drawable="@drawable/shape_chip_normal" />
 diff --git a/app/src/leanback/res/drawable/selector_family_search.xml b/app/src/leanback/res/drawable/selector_family_search.xml
 new file mode 100644
 index 0000000..5524c97
@@ -1317,6 +1328,434 @@ index 0000000..5524c97
 +    <item android:state_focused="true" android:drawable="@drawable/selector_item" />
 +    <item><shape><solid android:color="#24416E"/><stroke android:width="1dp" android:color="#527DB8"/><corners android:radius="14dp"/></shape></item>
 +</selector>
+diff --git a/app/src/leanback/res/drawable/selector_item.xml b/app/src/leanback/res/drawable/selector_item.xml
+index 5de5698..d75a098 100644
+--- a/app/src/leanback/res/drawable/selector_item.xml
++++ b/app/src/leanback/res/drawable/selector_item.xml
+@@ -1,5 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:drawable="@drawable/shape_item_focused" android:state_pressed="true" />
+     <item android:drawable="@drawable/shape_item_focused" android:state_focused="true" />
+     <item android:drawable="@drawable/shape_item_activated" android:state_selected="true" />
+     <item android:drawable="@drawable/shape_item_normal" />
+diff --git a/app/src/leanback/res/drawable/selector_site_item.xml b/app/src/leanback/res/drawable/selector_site_item.xml
+index 327acff..5edc76e 100644
+--- a/app/src/leanback/res/drawable/selector_site_item.xml
++++ b/app/src/leanback/res/drawable/selector_site_item.xml
+@@ -1,5 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:drawable="@drawable/shape_site_item_focused" android:state_pressed="true" />
+     <item android:drawable="@drawable/shape_site_item_focused" android:state_focused="true" />
+     <item android:drawable="@drawable/shape_site_item_selected" android:state_selected="true" />
+     <item android:drawable="@drawable/shape_site_item_normal" />
+diff --git a/app/src/leanback/res/drawable/selector_video_item.xml b/app/src/leanback/res/drawable/selector_video_item.xml
+index 552d93d..4d5e249 100644
+--- a/app/src/leanback/res/drawable/selector_video_item.xml
++++ b/app/src/leanback/res/drawable/selector_video_item.xml
+@@ -1,5 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:drawable="@drawable/shape_video_item_focused" android:state_pressed="true" />
+     <item android:drawable="@drawable/shape_video_item_focused" android:state_focused="true" />
+     <item android:drawable="@drawable/shape_video_item_activated" android:state_selected="true" />
+     <item android:drawable="@drawable/shape_video_item_normal" />
+diff --git a/app/src/leanback/res/layout/activity_search.xml b/app/src/leanback/res/layout/activity_search.xml
+index abae288..0411260 100644
+--- a/app/src/leanback/res/layout/activity_search.xml
++++ b/app/src/leanback/res/layout/activity_search.xml
+@@ -27,7 +27,7 @@
+                 android:layout_gravity="center_vertical"
+                 android:layout_marginEnd="12dp"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:nextFocusDown="@id/keyboard"
+                 android:src="@drawable/ic_search_mic" />
+
+diff --git a/app/src/leanback/res/layout/activity_setting.xml b/app/src/leanback/res/layout/activity_setting.xml
+index 35c62cc..872bc8d 100644
+--- a/app/src/leanback/res/layout/activity_setting.xml
++++ b/app/src/leanback/res/layout/activity_setting.xml
+@@ -26,7 +26,7 @@
+                 android:layout_weight="1"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:orientation="horizontal">
+
+                 <com.google.android.material.textview.MaterialTextView
+@@ -60,7 +60,7 @@
+                 android:layout_marginEnd="16dp"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:padding="8dp"
+                 android:src="@drawable/ic_setting_home" />
+
+@@ -70,7 +70,7 @@
+                 android:layout_height="wrap_content"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:padding="8dp"
+                 android:src="@drawable/ic_setting_history" />
+
+@@ -91,7 +91,7 @@
+                 android:layout_weight="1"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:orientation="horizontal">
+
+                 <com.google.android.material.textview.MaterialTextView
+@@ -125,7 +125,7 @@
+                 android:layout_marginEnd="16dp"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:padding="8dp"
+                 android:src="@drawable/ic_setting_home" />
+
+@@ -135,7 +135,7 @@
+                 android:layout_height="wrap_content"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:padding="8dp"
+                 android:src="@drawable/ic_setting_history" />
+
+@@ -156,7 +156,7 @@
+                 android:layout_weight="1"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:orientation="horizontal">
+
+                 <com.google.android.material.textview.MaterialTextView
+@@ -190,7 +190,7 @@
+                 android:layout_marginEnd="16dp"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:padding="8dp"
+                 android:src="@drawable/ic_setting_home" />
+
+@@ -200,7 +200,7 @@
+                 android:layout_height="wrap_content"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:padding="8dp"
+                 android:src="@drawable/ic_setting_refresh" />
+
+@@ -220,7 +220,7 @@
+                 android:layout_weight="1"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:orientation="horizontal">
+
+                 <com.google.android.material.textview.MaterialTextView
+@@ -240,7 +240,7 @@
+                 android:layout_weight="1"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:orientation="horizontal">
+
+                 <com.google.android.material.textview.MaterialTextView
+@@ -259,7 +259,7 @@
+                 android:layout_weight="1"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:orientation="horizontal">
+
+                 <com.google.android.material.textview.MaterialTextView
+@@ -279,7 +279,7 @@
+             android:layout_marginTop="16dp"
+             android:background="@drawable/selector_item"
+             android:focusable="true"
+-            android:focusableInTouchMode="true"
++            android:focusableInTouchMode="false"
+             android:orientation="horizontal">
+
+             <com.google.android.material.textview.MaterialTextView
+@@ -318,7 +318,7 @@
+                 android:layout_weight="1"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:orientation="horizontal">
+
+                 <com.google.android.material.textview.MaterialTextView
+@@ -349,7 +349,7 @@
+                 android:layout_weight="1"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:orientation="horizontal">
+
+                 <com.google.android.material.textview.MaterialTextView
+@@ -379,7 +379,7 @@
+                 android:layout_weight="1"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:nextFocusDown="@id/backup"
+                 android:orientation="horizontal">
+
+@@ -420,7 +420,7 @@
+                 android:layout_weight="1"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:orientation="horizontal">
+
+                 <com.google.android.material.textview.MaterialTextView
+@@ -439,7 +439,7 @@
+                 android:layout_weight="1"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:orientation="horizontal">
+
+                 <com.google.android.material.textview.MaterialTextView
+@@ -466,7 +466,7 @@
+                 android:layout_weight="1"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:orientation="horizontal">
+
+                 <com.google.android.material.textview.MaterialTextView
+@@ -495,7 +495,7 @@
+                 android:layout_weight="1"
+                 android:background="@drawable/selector_item"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:orientation="horizontal">
+
+                 <com.google.android.material.textview.MaterialTextView
+diff --git a/app/src/leanback/res/layout/activity_video.xml b/app/src/leanback/res/layout/activity_video.xml
+index 2f9fe62..28798c9 100644
+--- a/app/src/leanback/res/layout/activity_video.xml
++++ b/app/src/leanback/res/layout/activity_video.xml
+@@ -671,7 +671,7 @@
+             android:background="@drawable/selector_video_item"
+             android:drawablePadding="6dp"
+             android:focusable="true"
+-            android:focusableInTouchMode="true"
++            android:focusableInTouchMode="false"
+             android:gravity="center"
+             android:nextFocusUp="@id/actor"
+             android:nextFocusDown="@id/flag"
+@@ -689,7 +689,7 @@
+             android:background="@drawable/selector_video_item"
+             android:drawablePadding="6dp"
+             android:focusable="true"
+-            android:focusableInTouchMode="true"
++            android:focusableInTouchMode="false"
+             android:gravity="center"
+             android:nextFocusUp="@id/actor"
+             android:nextFocusDown="@id/flag"
+@@ -707,7 +707,7 @@
+             android:background="@drawable/selector_video_item"
+             android:drawablePadding="6dp"
+             android:focusable="true"
+-            android:focusableInTouchMode="true"
++            android:focusableInTouchMode="false"
+             android:gravity="center"
+             android:nextFocusUp="@id/actor"
+             android:nextFocusDown="@id/flag"
+@@ -725,7 +725,7 @@
+             android:background="@drawable/selector_video_item"
+             android:drawablePadding="6dp"
+             android:focusable="true"
+-            android:focusableInTouchMode="true"
++            android:focusableInTouchMode="false"
+             android:gravity="center"
+             android:nextFocusUp="@id/actor"
+             android:nextFocusDown="@id/flag"
+@@ -742,7 +742,7 @@
+             android:background="@drawable/selector_video_item"
+             android:drawablePadding="6dp"
+             android:focusable="true"
+-            android:focusableInTouchMode="true"
++            android:focusableInTouchMode="false"
+             android:gravity="center"
+             android:nextFocusRight="@id/change1"
+             android:nextFocusUp="@id/actor"
+diff --git a/app/src/leanback/res/layout/adapter_episode.xml b/app/src/leanback/res/layout/adapter_episode.xml
+index 73eb644..ee4104e 100644
+--- a/app/src/leanback/res/layout/adapter_episode.xml
++++ b/app/src/leanback/res/layout/adapter_episode.xml
+@@ -7,7 +7,7 @@
+     android:background="@drawable/selector_video_item"
+     android:ellipsize="marquee"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:gravity="center"
+     android:nextFocusUp="@id/array"
+     android:nextFocusDown="@id/part"
+diff --git a/app/src/leanback/res/layout/adapter_flag.xml b/app/src/leanback/res/layout/adapter_flag.xml
+index 59f47ed..242ed4d 100644
+--- a/app/src/leanback/res/layout/adapter_flag.xml
++++ b/app/src/leanback/res/layout/adapter_flag.xml
+@@ -6,7 +6,7 @@
+     android:layout_height="wrap_content"
+     android:background="@drawable/selector_video_item"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:gravity="center"
+     android:nextFocusDown="@id/episode"
+     android:textColor="@color/text"
+diff --git a/app/src/leanback/res/layout/adapter_func.xml b/app/src/leanback/res/layout/adapter_func.xml
+index 454ed9c..b4e0be8 100644
+--- a/app/src/leanback/res/layout/adapter_func.xml
++++ b/app/src/leanback/res/layout/adapter_func.xml
+@@ -5,7 +5,7 @@
+     android:layout_height="58dp"
+     android:background="@drawable/selector_item"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:gravity="center"
+     android:orientation="horizontal"
+     android:paddingStart="14dp"
+diff --git a/app/src/leanback/res/layout/adapter_site.xml b/app/src/leanback/res/layout/adapter_site.xml
+index 941f748..36c6597 100644
+--- a/app/src/leanback/res/layout/adapter_site.xml
++++ b/app/src/leanback/res/layout/adapter_site.xml
+@@ -5,7 +5,7 @@
+     android:layout_height="46dp"
+     android:background="@drawable/selector_site_item"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:gravity="center_vertical"
+     android:orientation="horizontal">
+
+diff --git a/app/src/leanback/res/layout/adapter_site_switch.xml b/app/src/leanback/res/layout/adapter_site_switch.xml
+index 06e1d1e..f699a94 100644
+--- a/app/src/leanback/res/layout/adapter_site_switch.xml
++++ b/app/src/leanback/res/layout/adapter_site_switch.xml
+@@ -4,7 +4,7 @@
+     android:layout_height="46dp"
+     android:background="@drawable/selector_site_item"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:gravity="center_vertical"
+     android:orientation="horizontal">
+
+diff --git a/app/src/leanback/res/layout/adapter_type.xml b/app/src/leanback/res/layout/adapter_type.xml
+index 6c7281d..725d7ad 100644
+--- a/app/src/leanback/res/layout/adapter_type.xml
++++ b/app/src/leanback/res/layout/adapter_type.xml
+@@ -6,7 +6,7 @@
+     android:layout_height="wrap_content"
+     android:background="@drawable/selector_item_round"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:textColor="@color/text"
+     android:textSize="16sp"
+     tools:text="電影" />
+\ No newline at end of file
+diff --git a/app/src/leanback/res/layout/adapter_vod.xml b/app/src/leanback/res/layout/adapter_vod.xml
+index 35ccbea..c7e0d72 100644
+--- a/app/src/leanback/res/layout/adapter_vod.xml
++++ b/app/src/leanback/res/layout/adapter_vod.xml
+@@ -5,7 +5,7 @@
+     android:layout_width="wrap_content"
+     android:layout_height="wrap_content"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:foreground="@drawable/selector_vod">
+
+     <com.google.android.material.imageview.ShapeableImageView
+diff --git a/app/src/leanback/res/layout/adapter_vod_list.xml b/app/src/leanback/res/layout/adapter_vod_list.xml
+index 608cca4..981ba95 100644
+--- a/app/src/leanback/res/layout/adapter_vod_list.xml
++++ b/app/src/leanback/res/layout/adapter_vod_list.xml
+@@ -6,7 +6,7 @@
+     android:layout_height="wrap_content"
+     android:background="@drawable/shape_vod_list"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:foreground="@drawable/selector_vod">
+
+     <androidx.appcompat.widget.LinearLayoutCompat
+diff --git a/app/src/leanback/res/layout/adapter_vod_rect.xml b/app/src/leanback/res/layout/adapter_vod_rect.xml
+index 3847c13..67449b1 100644
+--- a/app/src/leanback/res/layout/adapter_vod_rect.xml
++++ b/app/src/leanback/res/layout/adapter_vod_rect.xml
+@@ -5,7 +5,7 @@
+     android:layout_width="wrap_content"
+     android:layout_height="wrap_content"
+     android:focusable="true"
+-    android:focusableInTouchMode="true"
++    android:focusableInTouchMode="false"
+     android:foreground="@drawable/selector_vod">
+
+     <com.google.android.material.imageview.ShapeableImageView
+diff --git a/app/src/leanback/res/layout/dialog_config.xml b/app/src/leanback/res/layout/dialog_config.xml
+index 3460d2a..ce0a352 100644
+--- a/app/src/leanback/res/layout/dialog_config.xml
++++ b/app/src/leanback/res/layout/dialog_config.xml
+@@ -68,7 +68,7 @@
+                 android:layout_height="40dp"
+                 android:layout_weight="1"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:gravity="center"
+                 android:includeFontPadding="false"
+                 android:minWidth="0dp"
+@@ -95,7 +95,7 @@
+                 android:layout_marginStart="6dp"
+                 android:layout_weight="1"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:gravity="center"
+                 android:includeFontPadding="false"
+                 android:minWidth="0dp"
+@@ -122,7 +122,7 @@
+                 android:layout_marginStart="6dp"
+                 android:layout_weight="1"
+                 android:focusable="true"
+-                android:focusableInTouchMode="true"
++                android:focusableInTouchMode="false"
+                 android:gravity="center"
+                 android:includeFontPadding="false"
+                 android:minWidth="0dp"
 diff --git a/app/src/leanback/res/layout/dialog_quick_search.xml b/app/src/leanback/res/layout/dialog_quick_search.xml
 index 577e025..93bcc3c 100644
 --- a/app/src/leanback/res/layout/dialog_quick_search.xml
@@ -1355,6 +1794,19 @@ index 0000000..afb6724
 +    <string name="family_wait_continue">继续等待</string>
 +    <string name="family_wait_switch">切换来源</string>
 +</resources>
+diff --git a/app/src/leanback/res/values/styles.xml b/app/src/leanback/res/values/styles.xml
+index 3a6c5f3..2f308c8 100644
+--- a/app/src/leanback/res/values/styles.xml
++++ b/app/src/leanback/res/values/styles.xml
+@@ -39,7 +39,7 @@
+         <item name="android:layout_height">wrap_content</item>
+         <item name="android:background">@drawable/selector_chip</item>
+         <item name="android:focusable">true</item>
+-        <item name="android:focusableInTouchMode">true</item>
++        <item name="android:focusableInTouchMode">false</item>
+         <item name="android:nextFocusDown">@id/timeBar</item>
+         <item name="android:textColor">@color/text</item>
+         <item name="android:textSize">14sp</item>
 diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
 index 3cc9308..4ff166b 100644
 --- a/app/src/main/AndroidManifest.xml

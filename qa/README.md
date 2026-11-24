@@ -123,11 +123,21 @@ A config already loaded in a previous run is not a valid test for this
 issue. An older orphaned record with no catalog ID must not be assigned to
 a catalog by guesswork. This test does not validate migration from an older app.
 
-For a fresh-catalog history regression, add an unused synthetic config URL
-(for example, `/auto.json?fresh=resume-unique`) while the app is running.
-Without a restart, play until the E09 backup advances, then exit normally.
-Use History after a cold launch and select that record: the same episode
-must start near the saved position without trying the removed lines again.
-A config already loaded in a previous run is not a valid test for this
-issue. An older orphaned record with no catalog ID must not be assigned to
-a catalog by guesswork. This test does not validate migration from an older app.
+## Touch vs. remote regression
+
+Use the same leanback APK and a synthetic catalog. Test from a cold launch
+with a directional key used just beforehand, so the first tap starts with
+a different item focused. Do not add a second tap or a D-pad confirmation:
+
+- Tap **Settings**, then an unfocused **VOD** row. Each tap should open its
+  destination once. The URL editor itself must still take touch focus and
+  accept keyboard input. Confirming an already-entered synthetic URL still
+  requires pressing the dialog's OK, not merely focusing it.
+- Tap a catalog card, then **Change** in the video detail view. Verify the
+  choices open on the first tap. Choose a different route deliberately:
+  merely opening Change must not perform a switch. Swiping a list must not
+  perform clicks; verify long-press remains separate.
+- Repeat first-tap tests for **Search** and one episode or route chip. With
+  remote input, directional keys must move focus, and D-pad Center must
+  continue to activate the selected action. The video surface and input
+  fields intentionally retain their distinct focus behavior.
