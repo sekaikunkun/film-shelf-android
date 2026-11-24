@@ -104,3 +104,12 @@ test environment according to your data-handling policy.
 The public unit tests only use an ADB stand-in and synthetic canaries. They
 assert exact allowed results and no URL, token, title, or QR test string on
 stdout or stderr, including malformed, oversized and timed-out captures.
+
+For automatic **same-provider** recovery, use `/auto.json` with Auto Change
+enabled. Start EP09 on “Removed first”. The direct media server returns 404;
+the app must skip “Wrong episode” (EP01 only), try “Removed second” (410),
+then reach the same episode, labeled E09, on “Episode09 backup”. Verify the
+clock advances and there is no request to `never-episode01.mp4`. This path
+requires a typed Media3 HTTP response. Timeout, auth/permission errors,
+opaque providers, and disabling Auto Change do not qualify. Cross-provider
+changes still require an explicit selection.

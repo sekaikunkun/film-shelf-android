@@ -38,6 +38,15 @@ OBSERVER_DETAIL = dict(DETAIL, vod_id="observer-playback", vod_name="Observer La
 OBSERVER_AUTH_DETAIL = dict(AUTH_DETAIL, vod_id="observer-auth", vod_name="QR Lab TITLE_CANARY",
                             vod_play_from="Waiting", vod_play_url="EP01$wait")
 
+AUTO_NAMESPACE = "/auto/" + hashlib.sha256(MEDIA).hexdigest()[:16]
+AUTO_SITE = dict(SITE, key="qa-auto", name="Auto Recovery Lab", api=BASE+"/auto-api")
+AUTO_DETAIL = dict(DETAIL, vod_id="auto-restart", vod_name="Automatic Episode09",
+    vod_play_from="Removed first$$$Wrong episode$$$Removed second$$$Episode09 backup",
+    vod_play_url=(f"EP09${BASE}{AUTO_NAMESPACE}/removed-1.mp4$$$"
+                  f"EP01${BASE}{AUTO_NAMESPACE}/never-episode01.mp4$$$"
+                  f"第9集${BASE}{AUTO_NAMESPACE}/removed-2.mp4$$$"
+                  f"Episode01${BASE}{AUTO_NAMESPACE}/never-episode01.mp4#E09${BASE}{AUTO_NAMESPACE}/playing09.mp4"))
+
 CROSS_SITE = {"key":"qa-cross","name":"Cross-source Fixture","type":1,"api":BASE+"/cross","searchable":1}
 CROSS_DETAIL = dict(DETAIL, vod_id="cross-id", vod_play_from="Trailer-first fixture",
     vod_play_url=f"Trailer${BASE}/trailer.mp4#EP01${BASE}/cross01.mp4")
@@ -87,6 +96,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         req=urlsplit(self.path); p=req.path; q=parse_qs(req.query)
         if p=="/config.json": payload={"sites":[SITE,AUTH]}
+        elif p=="/auto.json": payload={"sites":[AUTO_SITE]}
+        elif p=="/auto-api":
+            payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[AUTO_DETAIL],"page":1,"pagecount":1,"total":1}
+        elif p==AUTO_NAMESPACE+"/removed-1.mp4": self.send_error(404); return
+        elif p==AUTO_NAMESPACE+"/removed-2.mp4": self.send_error(410); return
+        elif p in (AUTO_NAMESPACE+"/playing09.mp4", AUTO_NAMESPACE+"/never-episode01.mp4"):
+            self.send_bytes(MEDIA,"video/mp4",True); return
         elif p=="/observer.json": payload={"sites":[OBSERVER_SITE, OBSERVER_AUTH]}
         elif p=="/observer": payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[OBSERVER_DETAIL],"page":1,"pagecount":1,"total":1}
         elif p=="/observer-auth":

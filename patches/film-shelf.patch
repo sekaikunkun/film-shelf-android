@@ -1,5 +1,5 @@
 diff --git a/app/build.gradle b/app/build.gradle
-index 785c9b430163bad99e75dc5d0d4fbe6cc9bedd4c..03aedf8669e85145f662c9026a7145d6ca5f3bfa 100644
+index 785c9b4..03aedf8 100644
 --- a/app/build.gradle
 +++ b/app/build.gradle
 @@ -35,7 +35,7 @@ android {
@@ -22,7 +22,7 @@ index 785c9b430163bad99e75dc5d0d4fbe6cc9bedd4c..03aedf8669e85145f662c9026a7145d6
                  if (details.requested.group == 'androidx.media3') {
                      details.useVersion(libs.versions.media3.get())
 diff --git a/app/src/leanback/AndroidManifest.xml b/app/src/leanback/AndroidManifest.xml
-index 799122e0b6c1c43b0b4db890714cda722894103b..f11f47149060f984c5fd821bd5fce6b445e4fe0d 100644
+index 799122e..f11f471 100644
 --- a/app/src/leanback/AndroidManifest.xml
 +++ b/app/src/leanback/AndroidManifest.xml
 @@ -120,6 +120,7 @@
@@ -35,7 +35,7 @@ index 799122e0b6c1c43b0b4db890714cda722894103b..f11f47149060f984c5fd821bd5fce6b4
              android:launchMode="singleTop"
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..a3aae68eeee166e3c8aefe32d2f49f8c0933be62
+index 0000000..a3aae68
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java
 @@ -0,0 +1,300 @@
@@ -341,7 +341,7 @@ index 0000000000000000000000000000000000000000..a3aae68eeee166e3c8aefe32d2f49f8c
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWait.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWait.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..bfe506d2a5f2483e6bc30eaff493efdde2bfec69
+index 0000000..bfe506d
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWait.java
 @@ -0,0 +1,61 @@
@@ -408,10 +408,10 @@ index 0000000000000000000000000000000000000000..bfe506d2a5f2483e6bc30eaff493efdd
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..575e6715cc9f2346cd2760e8717385491f51659c
+index 0000000..91c4763
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,114 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import java.net.URI;
@@ -510,6 +510,13 @@ index 0000000000000000000000000000000000000000..575e6715cc9f2346cd2760e871738549
 +        }
 +    }
 +
++    // Only explicit permanent media removal may trigger unattended retries.
++    // Timeouts, access errors and ambiguous parsing never qualify.
++    static boolean canAutoRetry(boolean mediaGone, String activeUrl, int type,
++                                boolean hasExtension, boolean hasHeaders, boolean hasPlayUrl) {
++        return mediaGone && plainCatalog(type, hasExtension, hasHeaders, hasPlayUrl) && directMedia(activeUrl);
++    }
++
 +    static boolean plainCatalog(int type, boolean hasExtension, boolean hasHeaders, boolean hasPlayUrl) {
 +        return (type == 0 || type == 1) && !hasExtension && !hasHeaders && !hasPlayUrl;
 +    }
@@ -520,7 +527,7 @@ index 0000000000000000000000000000000000000000..575e6715cc9f2346cd2760e871738549
 +    }
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
-index 4a19e318ebfecc29646e4efed18d37419b3a3c0a..6f1a6f9299628c73b9dbd7059ab2307d6c7f1862 100644
+index 4a19e31..6f1a6f9 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
 @@ -156,8 +156,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
@@ -597,7 +604,7 @@ index 4a19e318ebfecc29646e4efed18d37419b3a3c0a..6f1a6f9299628c73b9dbd7059ab2307d
          else if (item.getResId() == R.string.home_search) SearchActivity.start(this);
          else if (item.getResId() == R.string.home_setting) SettingActivity.start(this);
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
-index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567e90a247e 100644
+index 5a1e119..8b361ee 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 @@ -1084,6 +1084,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
@@ -629,7 +636,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
          }
      }
  
-@@ -1178,7 +1182,338 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1178,7 +1182,380 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          };
      }
  
@@ -641,6 +648,9 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
 +    private boolean familyAuthNotice;
 +    private String familyError;
 +    private boolean familyErrorObscured;
++    private final java.util.Set<String> familyTriedUrls = new java.util.HashSet<>();
++    private String familyRecoveryEpisode = "";
++    private boolean familyRetryingLine;
 +
 +    private void scheduleFamilyTick() {
 +        App.removeCallbacks(familyTick);
@@ -888,12 +898,46 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
 +            if (expiredBehindOverlay) familyWait.start(now);
 +            else {
 +                applyFamilyFailure(error);
-+                showFamilyRecovery(true);
++                if (!tryFamilyNextLine(error)) showFamilyRecovery(true);
 +            }
 +        } else if (familyWait.shouldPrompt(now, obscured)) {
 +            showFamilyRecovery(false);
 +        }
 +        scheduleFamilyTick();
++    }
++
++    private boolean tryFamilyNextLine(String error) {
++        if (!PlayerSetting.isAutoChange() || familyLoginWait || familyScanDialog != null
++                || mQuickSearchDialog != null || service() == null || mFlagAdapter.getItemCount() < 2
++                || mEpisodeAdapter.getItemCount() == 0 || mHistory == null) return false;
++        Site site = getSite();
++        if (!site.isChangeable()) return false;
++        Episode active = getEpisode();
++        if (!FamilyRouteProbePolicy.canAutoRetry(
++                getString(R.string.family_media_gone).equals(error), active.getUrl(), site.getType(),
++                !site.getExt().isEmpty(), !site.getHeader().isEmpty(), !site.getPlayUrl().isEmpty())) return false;
++        List<Flag> flags = mFlagAdapter.getItems();
++        int current = flags.indexOf(getFlag());
++        if (current < 0) return false;
++        for (int offset = 1; offset < flags.size(); offset++) {
++            Flag alternative = flags.get((current + offset) % flags.size());
++            if (alternative.isSelected()) continue;
++            List<Episode> episodes = alternative.getEpisodes();
++            int target = FamilyRouteProbePolicy.episodeIndex(familyRecoveryEpisode,
++                    episodes.stream().map(Episode::getName).collect(java.util.stream.Collectors.toList()));
++            if (target < 0) continue;
++            Episode match = episodes.get(target);
++            if (!FamilyRouteProbePolicy.directMedia(match.getUrl()) || !familyTriedUrls.add(match.getUrl())) continue;
++            Notify.show(getString(R.string.play_switch_flag, alternative.getFlag()));
++            familyRetryingLine = true;
++            try {
++                selectFlagEpisode(alternative, match);
++            } finally {
++                familyRetryingLine = false;
++            }
++            return true;
++        }
++        return false;
 +    }
 +
 +    private void stopFamilyWait() {
@@ -961,6 +1005,11 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
 +    }
 +
      private void getPlayer(Flag flag, Episode episode) {
++        if (!familyRetryingLine) {
++            familyRecoveryEpisode = episode.getName();
++            familyTriedUrls.clear();
++        }
++        familyTriedUrls.add(episode.getUrl());
 +        cancelFamilyScan();
 +        stopFamilyWait();
 +        familyWait.start(android.os.SystemClock.elapsedRealtime());
@@ -968,7 +1017,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
          mBinding.widget.title.setText(getString(R.string.detail_title, mBinding.name.getText(), episode.getName()));
          playerStartTime = System.currentTimeMillis();
          beginPlayHealth();
-@@ -1208,6 +1543,12 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1208,6 +1585,12 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      private void setPlayer(Result result) {
          if (isFinishing() || isDestroyed()) return;
@@ -981,7 +1030,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
          SpiderDebug.log("video-flow", "player finish cost=%dms useParse=%s multi=%s msg=%s", System.currentTimeMillis() - playerStartTime, result.shouldUseParse(), result.getUrl().isMulti(), result.getMsg());
          if (service() == null) {
              mPendingPlayer = result;
-@@ -1257,6 +1598,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1257,6 +1640,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      public void onItemClick(Flag item) {
@@ -992,7 +1041,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
          if (isFinishing() || isDestroyed() || mFlagAdapter.getItemCount() == 0 || item.isSelected()) return;
          int oldPosition = mFlagAdapter.getSelectedPosition();
          mFlagAdapter.setSelected(item);
-@@ -1265,7 +1610,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1265,7 +1652,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          notifyItemsChanged(mBinding.flag, mFlagAdapter, oldPosition, newPosition);
          setEpisodeAdapter(item.getEpisodes());
          setQualityVisible(false);
@@ -1002,7 +1051,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
      }
  
      private void setEpisodeAdapter(List<Episode> items) {
-@@ -2471,7 +2817,23 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -2471,7 +2859,23 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void onChange() {
@@ -1027,7 +1076,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
      }
  
      private void onFullscreen() {
-@@ -3640,11 +4002,36 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -3640,11 +4044,36 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void checkFlag(Vod item) {
@@ -1065,7 +1114,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
              onItemClick(mHistory.getFlag());
              if (mHistory.isRevSort()) reverseEpisode(true);
          }
-@@ -5460,6 +5847,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5460,6 +5889,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      protected void onError(String msg) {
@@ -1084,7 +1133,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
          recordPlayHealth(false, msg);
          Track.delete(player().getKey());
          mClock.setCallback(null);
-@@ -5469,7 +5868,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5469,7 +5910,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          player().reset();
          player().stop();
          showError(msg);
@@ -1092,7 +1141,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
      }
  
      @Override
-@@ -5495,6 +5893,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5495,6 +5935,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                  showProgress();
                  break;
              case Player.STATE_READY:
@@ -1100,7 +1149,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
                  mKaraokeResultShown = false;
                  recordPlayHealth(true, "");
                  hideProgress();
-@@ -5665,14 +6064,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5665,14 +6106,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      private void checkFlag() {
          int position = isGone(mBinding.flag) ? -1 : mFlagAdapter.getPosition();
@@ -1124,7 +1173,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
      }
  
      private void initSearch(String keyword, boolean auto) {
-@@ -5730,7 +6134,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5730,7 +6176,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
              mQuickSearchDialog.addAll(items);
              return;
          }
@@ -1133,7 +1182,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
          dialog.dismissListener(d -> {
              if (mQuickSearchDialog != dialog) return;
              mQuickSearchDialog = null;
-@@ -5748,14 +6152,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5748,14 +6194,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      public void onItemClick(Vod item) {
@@ -1153,7 +1202,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
          String keyword = Objects.toString(mBinding.part.getTag(), "");
          if (isAutoMode()) return !item.getName().equals(keyword);
          else return !item.getName().contains(keyword);
-@@ -5779,7 +6186,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5779,7 +6228,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          Vod item = mQuickAdapter.get(position);
          Notify.show(getString(R.string.play_switch_site, item.getSiteName()));
          mQuickAdapter.remove(position);
@@ -1162,7 +1211,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
          setInitAuto(false);
          applySearchArtwork(item);
          getDetail(item);
-@@ -6323,6 +6730,21 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6323,6 +6772,21 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          if (service() != null) refreshLyrics();
      }
  
@@ -1184,7 +1233,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
      @Override
      protected void onStop() {
          super.onStop();
-@@ -6354,6 +6776,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6354,6 +6818,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void finishVideoPlaybackNow() {
@@ -1192,7 +1241,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
          mViewModel.stopSearch();
          saveHistory(true);
          markPlaybackExiting();
-@@ -6364,6 +6787,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6364,6 +6829,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      protected void onDestroy() {
@@ -1202,7 +1251,7 @@ index 5a1e119bc160e402f144f7c6afb21818b5696949..09d583ab0317e32a95885600b6d4f567
              mCustomButtonPlayer.removeCustomButtonStateListener(mCustomButtonStateListener);
              mCustomButtonPlayer = null;
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/dialog/QuickSearchDialog.java b/app/src/leanback/java/com/fongmi/android/tv/ui/dialog/QuickSearchDialog.java
-index 41585e5a21d732b0081e68fb08aa81d534b69430..e1fff683d6f2143af7a94301383b3fba2e5a1699 100644
+index 41585e5..e1fff68 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/dialog/QuickSearchDialog.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/dialog/QuickSearchDialog.java
 @@ -36,6 +36,7 @@ public class QuickSearchDialog extends BaseAlertDialog implements QuickAdapter.O
@@ -1245,7 +1294,7 @@ index 41585e5a21d732b0081e68fb08aa81d534b69430..e1fff683d6f2143af7a94301383b3fba
          if (empty) {
              binding.loading.setVisibility(View.VISIBLE);
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/FuncPresenter.java b/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/FuncPresenter.java
-index d3c6f8c43c178c340fb017dd2e6d94352ddd3481..0c613383eab35dc77b49b98beb29a28bdceb0f16 100644
+index d3c6f8c..0c61338 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/FuncPresenter.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/FuncPresenter.java
 @@ -38,6 +38,8 @@ public class FuncPresenter extends Presenter {
@@ -1259,7 +1308,7 @@ index d3c6f8c43c178c340fb017dd2e6d94352ddd3481..0c613383eab35dc77b49b98beb29a28b
          holder.view.setOnKeyListener((view, keyCode, event) -> onKeyDown(view, event));
 diff --git a/app/src/leanback/res/drawable/selector_family_search.xml b/app/src/leanback/res/drawable/selector_family_search.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..5524c9772f5f4afd179774aa754d8cb2dbbee3f6
+index 0000000..5524c97
 --- /dev/null
 +++ b/app/src/leanback/res/drawable/selector_family_search.xml
 @@ -0,0 +1,5 @@
@@ -1269,7 +1318,7 @@ index 0000000000000000000000000000000000000000..5524c9772f5f4afd179774aa754d8cb2
 +    <item><shape><solid android:color="#24416E"/><stroke android:width="1dp" android:color="#527DB8"/><corners android:radius="14dp"/></shape></item>
 +</selector>
 diff --git a/app/src/leanback/res/layout/dialog_quick_search.xml b/app/src/leanback/res/layout/dialog_quick_search.xml
-index 577e0253af00d5da2fbbc66cf899d712b92a54be..93bcc3c689709ef1c3da4372a46d9579ca59b3a8 100644
+index 577e025..93bcc3c 100644
 --- a/app/src/leanback/res/layout/dialog_quick_search.xml
 +++ b/app/src/leanback/res/layout/dialog_quick_search.xml
 @@ -22,6 +22,13 @@
@@ -1288,7 +1337,7 @@ index 577e0253af00d5da2fbbc66cf899d712b92a54be..93bcc3c689709ef1c3da4372a46d9579
          android:layout_height="0dp"
 diff --git a/app/src/leanback/res/values/family_port.xml b/app/src/leanback/res/values/family_port.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..afb67242b3ab520c04f91a12723e81a9ec478f58
+index 0000000..afb6724
 --- /dev/null
 +++ b/app/src/leanback/res/values/family_port.xml
 @@ -0,0 +1,14 @@
@@ -1307,7 +1356,7 @@ index 0000000000000000000000000000000000000000..afb67242b3ab520c04f91a12723e81a9
 +    <string name="family_wait_switch">切换来源</string>
 +</resources>
 diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
-index 3cc9308a42bb10b48879b04f6bfae3920b70e71a..4ff166b817b6ea8c92b06dabda2ad517b272b857 100644
+index 3cc9308..4ff166b 100644
 --- a/app/src/main/AndroidManifest.xml
 +++ b/app/src/main/AndroidManifest.xml
 @@ -59,7 +59,7 @@
@@ -1329,7 +1378,7 @@ index 3cc9308a42bb10b48879b04f6bfae3920b70e71a..4ff166b817b6ea8c92b06dabda2ad517
          <meta-data
              android:name="android.max_aspect"
 diff --git a/app/src/main/java/com/fongmi/android/tv/App.java b/app/src/main/java/com/fongmi/android/tv/App.java
-index a27bd9c76cac73d5c9f185eab4cee0ca9ceff8b1..a82278f56e7c8aa7da7e4da95373cf8389efae01 100644
+index a27bd9c..a82278f 100644
 --- a/app/src/main/java/com/fongmi/android/tv/App.java
 +++ b/app/src/main/java/com/fongmi/android/tv/App.java
 @@ -127,9 +127,7 @@ public class App extends Application implements Application.ActivityLifecycleCal
@@ -1344,7 +1393,7 @@ index a27bd9c76cac73d5c9f185eab4cee0ca9ceff8b1..a82278f56e7c8aa7da7e4da95373cf83
      }
  
 diff --git a/app/src/main/java/com/fongmi/android/tv/api/SiteApi.java b/app/src/main/java/com/fongmi/android/tv/api/SiteApi.java
-index 90c5546e622b7d02ac925d4a1337df218c10bbb4..bc8c6ef1ed0c012d934017d213aa2b2bfe49b9ba 100644
+index 90c5546..bc8c6ef 100644
 --- a/app/src/main/java/com/fongmi/android/tv/api/SiteApi.java
 +++ b/app/src/main/java/com/fongmi/android/tv/api/SiteApi.java
 @@ -9,6 +9,7 @@ import com.fongmi.android.tv.App;
@@ -1407,7 +1456,7 @@ index 90c5546e622b7d02ac925d4a1337df218c10bbb4..bc8c6ef1ed0c012d934017d213aa2b2b
  
      private static void setTypes(@NonNull Site site, @NonNull Result result) {
 diff --git a/app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java b/app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java
-index 8f911f80e160c2eac7febe219b05f9adb1243a12..f9355b8ffb8c4e1d1fb7f8b13d07c6f337117b1e 100644
+index 8f911f8..f9355b8 100644
 --- a/app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java
 +++ b/app/src/main/java/com/fongmi/android/tv/api/config/VodConfig.java
 @@ -156,7 +156,6 @@ public class VodConfig extends BaseConfig {
@@ -1433,7 +1482,7 @@ index 8f911f80e160c2eac7febe219b05f9adb1243a12..f9355b8ffb8c4e1d1fb7f8b13d07c6f3
          if (Json.isEmpty(object, "wallpaper")) return;
 diff --git a/app/src/main/java/com/fongmi/android/tv/bean/DetailIdentity.java b/app/src/main/java/com/fongmi/android/tv/bean/DetailIdentity.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..675a77e8bcf38dfe9e0df2299322e7be08524ce3
+index 0000000..675a77e
 --- /dev/null
 +++ b/app/src/main/java/com/fongmi/android/tv/bean/DetailIdentity.java
 @@ -0,0 +1,39 @@
@@ -1476,8 +1525,33 @@ index 0000000000000000000000000000000000000000..675a77e8bcf38dfe9e0df2299322e7be
 +        return match;
 +    }
 +}
+diff --git a/app/src/main/java/com/fongmi/android/tv/player/PlayerManager.java b/app/src/main/java/com/fongmi/android/tv/player/PlayerManager.java
+index 61a706e..bb86245 100644
+--- a/app/src/main/java/com/fongmi/android/tv/player/PlayerManager.java
++++ b/app/src/main/java/com/fongmi/android/tv/player/PlayerManager.java
+@@ -7675,10 +7675,19 @@ public class PlayerManager implements ParseCallback {
+             }
+             finishPlaybackProfileAbSession(
+                     "player-error", SystemClock.elapsedRealtime());
+-            callback.onError(getPlaybackErrorMessage(failure));
++            callback.onError(isPermanentlyMissingMedia(e)
++                    ? ResUtil.getString(R.string.family_media_gone) : getPlaybackErrorMessage(failure));
+         }
+     };
+
++    private static boolean isPermanentlyMissingMedia(Throwable error) {
++        for (int depth = 0; error != null && depth < 12; depth++, error = error.getCause()) {
++            if (error instanceof androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException response)
++                return response.responseCode == 404 || response.responseCode == 410;
++        }
++        return false;
++    }
++
+     private record IjkTimelinePublicationKey(
+             Object manifest,
+             MediaItem.LiveConfiguration liveConfiguration,
 diff --git a/app/src/main/java/com/fongmi/android/tv/player/Source.java b/app/src/main/java/com/fongmi/android/tv/player/Source.java
-index d7e8ee6d445d09a8235bf41a9437093a6034644e..c7b486f479837a91aa459f71a4fa79ef2ed5cc38 100644
+index d7e8ee6..c7b486f 100644
 --- a/app/src/main/java/com/fongmi/android/tv/player/Source.java
 +++ b/app/src/main/java/com/fongmi/android/tv/player/Source.java
 @@ -8,7 +8,6 @@ import com.fongmi.android.tv.bean.Episode;
@@ -1498,7 +1572,7 @@ index d7e8ee6d445d09a8235bf41a9437093a6034644e..c7b486f479837a91aa459f71a4fa79ef
          extractors.add(new Strm());
 diff --git a/app/src/main/java/com/fongmi/android/tv/player/extractor/Force.java b/app/src/main/java/com/fongmi/android/tv/player/extractor/Force.java
 deleted file mode 100644
-index f20fdd6fcc889f9a2e9aee02d233caee91a23115..0000000000000000000000000000000000000000
+index f20fdd6..0000000
 --- a/app/src/main/java/com/fongmi/android/tv/player/extractor/Force.java
 +++ /dev/null
 @@ -1,72 +0,0 @@
@@ -1575,7 +1649,7 @@ index f20fdd6fcc889f9a2e9aee02d233caee91a23115..00000000000000000000000000000000
 -    }
 -}
 diff --git a/app/src/main/java/com/fongmi/android/tv/server/Nano.java b/app/src/main/java/com/fongmi/android/tv/server/Nano.java
-index b1ab8a3f531b61c7060ed1c5eb12605d43285d23..a1f0e53f8e19a6d7aa4b83f400fff0007d179016 100644
+index b1ab8a3..a1f0e53 100644
 --- a/app/src/main/java/com/fongmi/android/tv/server/Nano.java
 +++ b/app/src/main/java/com/fongmi/android/tv/server/Nano.java
 @@ -35,7 +35,7 @@ public class Nano extends NanoHTTPD {
@@ -1588,7 +1662,7 @@ index b1ab8a3f531b61c7060ed1c5eb12605d43285d23..a1f0e53f8e19a6d7aa4b83f400fff000
      }
  
 diff --git a/app/src/main/java/com/fongmi/android/tv/setting/Setting.java b/app/src/main/java/com/fongmi/android/tv/setting/Setting.java
-index 4a2e928c63747ba8c6c47fe683166123704fdd27..25291d6b074f9d344f620879c46790bdd5a5a6ed 100644
+index 4a2e928..25291d6 100644
 --- a/app/src/main/java/com/fongmi/android/tv/setting/Setting.java
 +++ b/app/src/main/java/com/fongmi/android/tv/setting/Setting.java
 @@ -100,7 +100,8 @@ public class Setting {
@@ -1603,14 +1677,15 @@ index 4a2e928c63747ba8c6c47fe683166123704fdd27..25291d6b074f9d344f620879c46790bd
      public static void putDoh(String doh) {
 diff --git a/app/src/main/res/values/family_build_name.xml b/app/src/main/res/values/family_build_name.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..ad5f7836f2e8de1c102041e8697b5d8bd9a4c68a
+index 0000000..872cbea
 --- /dev/null
 +++ b/app/src/main/res/values/family_build_name.xml
-@@ -0,0 +1 @@
-+<resources><string name="family_build_name">Film Shelf</string></resources>
+@@ -0,0 +1,2 @@
++<resources><string name="family_build_name">Film Shelf</string>    <string name="family_media_gone">此线路的视频已不可用（HTTP 404/410）</string>
++</resources>
 diff --git a/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWaitPolicyTest.java b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWaitPolicyTest.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..86cf3ceb93d1e0651d9c4af254cf453eb1494f9d
+index 0000000..86cf3ce
 --- /dev/null
 +++ b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWaitPolicyTest.java
 @@ -0,0 +1,62 @@
@@ -1678,10 +1753,10 @@ index 0000000000000000000000000000000000000000..86cf3ceb93d1e0651d9c4af254cf453e
 +}
 diff --git a/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..bc13767c36b89de1522e13d8dd97d46676c1c402
+index 0000000..87c6099
 --- /dev/null
 +++ b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,116 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import com.fongmi.android.tv.bean.DetailIdentity;
@@ -1712,6 +1787,15 @@ index 0000000000000000000000000000000000000000..bc13767c36b89de1522e13d8dd97d466
 +        assertFalse(FamilyRouteProbePolicy.directMedia("https://user:secret@example.org/a.mp4"));
 +        assertFalse(FamilyRouteProbePolicy.directMedia("file:///tmp/a.mp4"));
 +        assertFalse(FamilyRouteProbePolicy.directMedia("magnet:?xt=urn:btih:0"));
++    }
++
++    @Test public void autoRetryRequiresPermanentlyMissingDirectMediaWithoutOpaqueProvider() {
++        String media = "https://example.org/test09.mp4";
++        assertTrue(FamilyRouteProbePolicy.canAutoRetry(true, media, 1, false, false, false));
++        assertFalse(FamilyRouteProbePolicy.canAutoRetry(false, media, 1, false, false, false));
++        assertFalse(FamilyRouteProbePolicy.canAutoRetry(true, media, 4, false, false, false));
++        assertFalse(FamilyRouteProbePolicy.canAutoRetry(true, media, 1, false, true, false));
++        assertFalse(FamilyRouteProbePolicy.canAutoRetry(true, "opaque-id", 1, false, false, false));
 +    }
 +
 +    @Test public void scansCurrentEpisodeInReorderedAndShorterPlaylists() {
@@ -1790,7 +1874,7 @@ index 0000000000000000000000000000000000000000..bc13767c36b89de1522e13d8dd97d466
 +    }
 +}
 diff --git a/chaquo/build.gradle b/chaquo/build.gradle
-index 612e9bb04fa91bb88ea76b5f3d5146f58a411ed8..a6aa21232bbd2e1bd85a62cf9993d3365dbd5b94 100644
+index 612e9bb..a6aa212 100644
 --- a/chaquo/build.gradle
 +++ b/chaquo/build.gradle
 @@ -25,6 +25,13 @@ android {
@@ -1809,7 +1893,7 @@ index 612e9bb04fa91bb88ea76b5f3d5146f58a411ed8..a6aa21232bbd2e1bd85a62cf9993d336
              dimension "abi"
 diff --git a/gradle/gradle-daemon-jvm.properties b/gradle/gradle-daemon-jvm.properties
 deleted file mode 100644
-index 5c34300fa6dcc608b3e326737a7a19e54a1910fd..0000000000000000000000000000000000000000
+index 5c34300..0000000
 --- a/gradle/gradle-daemon-jvm.properties
 +++ /dev/null
 @@ -1,13 +0,0 @@
@@ -1827,7 +1911,7 @@ index 5c34300fa6dcc608b3e326737a7a19e54a1910fd..00000000000000000000000000000000
 -toolchainVendor=JETBRAINS
 -toolchainVersion=21
 diff --git a/gradle/wrapper/gradle-wrapper.properties b/gradle/wrapper/gradle-wrapper.properties
-index e1694c37194e28c8e4037dfafef11ee3700f5301..b13aad0b6580c48a38f39c186f9613a0798cba5e 100644
+index e1694c3..b13aad0 100644
 --- a/gradle/wrapper/gradle-wrapper.properties
 +++ b/gradle/wrapper/gradle-wrapper.properties
 @@ -1,7 +1,7 @@
@@ -1841,7 +1925,7 @@ index e1694c37194e28c8e4037dfafef11ee3700f5301..b13aad0b6580c48a38f39c186f9613a0
  zipStoreBase=GRADLE_USER_HOME
  zipStorePath=wrapper/dists
 diff --git a/settings.gradle b/settings.gradle
-index 087f899c38c9cb673618a505a6c276528f46d7c6..73d57965f8c6b274f776b2c6600e6c45a569fbb2 100644
+index 087f899..73d5796 100644
 --- a/settings.gradle
 +++ b/settings.gradle
 @@ -6,9 +6,6 @@ pluginManagement {

@@ -4,6 +4,16 @@ An independent, GPLv3 Android TV playback experiment based on [WebHomeTV](https:
 
 The TV variant puts Search first, hides Live, distinguishes an explicit login prompt from a playback failure, and can check supported direct alternate sources without interrupting playback. It only offers a switch after rendering and advancing video; sources needing unsupported parsers or credentials still require manual testing. From Change, a plain catalog can also test alternate lines for the current episode without switching suppliers or guessing an episode by playlist position.
 
+
+With Auto Change enabled, an explicit HTTP 404 or 410 from the player can
+try the next matching episode in a supported direct catalog. It skips
+unmatched episodes and already tried URLs. It does not automatically
+change providers, treat authorization as a dead line, or guess on timeout.
+
+For a non-private prototype walkthrough, test the isolated ARM64 build
+with the [local synthetic catalog](qa/README.md#reproduce-with-a-local-fixture).
+CI verifies the build; reproduction and actual playback are separate.
+
 This repository contains the source changes and reproducible build recipe, not upstream binary copies. The build fetches a pinned public upstream snapshot and checksum-verified Python dependencies. See the upstream license and third-party notices/locks in that snapshot. CI builds and tests an independent ARM64 debug APK; there is no public binary release pending a third-party redistribution review. Binary alignment checks are not Android runtime tests.
 
 ## Build
