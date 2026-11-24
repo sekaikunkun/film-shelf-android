@@ -113,3 +113,21 @@ clock advances and there is no request to `never-episode01.mp4`. This path
 requires a typed Media3 HTTP response. Timeout, auth/permission errors,
 opaque providers, and disabling Auto Change do not qualify. Cross-provider
 changes still require an explicit selection.
+
+For a fresh-catalog history regression, add an unused synthetic config URL
+(for example, `/auto.json?fresh=resume-unique`) while the app is running.
+Without a restart, play until the E09 backup advances, then exit normally.
+Use History after a cold launch and select that record: the same episode
+must start near the saved position without trying the removed lines again.
+A config already loaded in a previous run is not a valid test for this
+issue. An older orphaned record with no catalog ID must not be assigned to
+a catalog by guesswork. This test does not validate migration from an older app.
+
+For a fresh-catalog history regression, add an unused synthetic config URL
+(for example, `/auto.json?fresh=resume-unique`) while the app is running.
+Without a restart, play until the E09 backup advances, then exit normally.
+Use History after a cold launch and select that record: the same episode
+must start near the saved position without trying the removed lines again.
+A config already loaded in a previous run is not a valid test for this
+issue. An older orphaned record with no catalog ID must not be assigned to
+a catalog by guesswork. This test does not validate migration from an older app.

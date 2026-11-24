@@ -1480,6 +1480,19 @@ index 8f911f8..f9355b8 100644
  
      private void initWall(Config config, JsonObject object) {
          if (Json.isEmpty(object, "wallpaper")) return;
+diff --git a/app/src/main/java/com/fongmi/android/tv/bean/Config.java b/app/src/main/java/com/fongmi/android/tv/bean/Config.java
+index 3310a07..639cf3b 100644
+--- a/app/src/main/java/com/fongmi/android/tv/bean/Config.java
++++ b/app/src/main/java/com/fongmi/android/tv/bean/Config.java
+@@ -256,7 +256,7 @@ public class Config {
+
+     public Config save() {
+         if (isEmpty()) return this;
+-        AppDatabase.get().getConfigDao().insertOrUpdate(this);
++        AppDatabase.get().getConfigDao().saveWithIdentity(this);
+         return this;
+     }
+
 diff --git a/app/src/main/java/com/fongmi/android/tv/bean/DetailIdentity.java b/app/src/main/java/com/fongmi/android/tv/bean/DetailIdentity.java
 new file mode 100644
 index 0000000..675a77e
@@ -1525,6 +1538,46 @@ index 0000000..675a77e
 +        return match;
 +    }
 +}
+diff --git a/app/src/main/java/com/fongmi/android/tv/db/dao/ConfigDao.java b/app/src/main/java/com/fongmi/android/tv/db/dao/ConfigDao.java
+index 06c6a34..2dc05da 100644
+--- a/app/src/main/java/com/fongmi/android/tv/db/dao/ConfigDao.java
++++ b/app/src/main/java/com/fongmi/android/tv/db/dao/ConfigDao.java
+@@ -3,6 +3,7 @@ package com.fongmi.android.tv.db.dao;
+ import androidx.room.Dao;
+ import androidx.room.Query;
+ import androidx.room.RoomWarnings;
++import androidx.room.Transaction;
+
+ import com.fongmi.android.tv.bean.Config;
+
+@@ -11,6 +12,27 @@ import java.util.List;
+ @Dao
+ public abstract class ConfigDao extends BaseDao<Config> {
+
++    // Room returns the generated key but does not update the object used by
++    // the active catalog. History and favorites need this ID before first use.
++    @Transaction
++    public void saveWithIdentity(Config item) {
++        if (item.getId() > 0) {
++            insertOrUpdate(item);
++            return;
++        }
++        item.setId(0);
++        long inserted = insert(item);
++        if (inserted > 0) {
++            item.setId(Math.toIntExact(inserted));
++            return;
++        }
++        Config saved = find(item.getUrl(), item.getType());
++        if (saved != null) {
++            item.setId(saved.getId());
++            update(item);
++        }
++    }
++
+     @Query("SELECT * FROM Config")
+     public abstract List<Config> findAll();
+
 diff --git a/app/src/main/java/com/fongmi/android/tv/player/PlayerManager.java b/app/src/main/java/com/fongmi/android/tv/player/PlayerManager.java
 index 61a706e..bb86245 100644
 --- a/app/src/main/java/com/fongmi/android/tv/player/PlayerManager.java
