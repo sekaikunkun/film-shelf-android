@@ -27,7 +27,7 @@ def check_view(layout, view_id=None, touch="false"):
 def check():
     for layout in ("adapter_func", "adapter_flag", "adapter_episode", "adapter_site_switch",
                    "adapter_site", "adapter_type", "adapter_vod", "adapter_vod_list", "adapter_vod_rect",
-                   "adapter_vod_oval", "adapter_keyboard_icon", "adapter_keyboard_text", "adapter_search", "adapter_search_word",
+                   "adapter_vod_oval", "adapter_filter", "adapter_keyboard_icon", "adapter_keyboard_text", "adapter_search", "adapter_search_word",
                    "adapter_search_hot_word", "adapter_search_record", "adapter_quick"):
         check_view(layout)
     for layout, ids in {

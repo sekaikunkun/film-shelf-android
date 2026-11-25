@@ -171,6 +171,9 @@ a different item focused. Do not add a second tap or a D-pad confirmation:
   tap the inactive catalog name once. The dialog should close and the selected
   catalog should become active. Repeat using D-pad focus and Center; do not
   tap the adjacent delete icon.
+- Load `/filter.json` and open QA Filters. Tap a different genre exactly
+  once: its result should replace the old list and only one filtered request
+  should be sent. With D-pad input, moving focus alone must not filter.
 - Load `/oval.json` for a circular catalog card. With a different item focused,
   tap the title once and verify that EP09 opens. Repeat using D-pad navigation
   and Center. The card should still give press feedback.

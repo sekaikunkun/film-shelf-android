@@ -76,6 +76,12 @@ OVAL_DETAIL = dict(PROGRESS_DETAIL, vod_id="oval-card-episode09", vod_name="Oval
                    style=OVAL_STYLE, vod_play_from="Current",
                    vod_play_url=f"EP09${BASE}/progress-current09.mp4")
 
+FILTER_SITE = dict(SITE, key="qa-filter", name="Category Filter Lab", api=BASE+"/filter-api")
+FILTERS = {"1":[{"key":"genre","name":"Genre","value":[{"n":"Action QA","v":"action"},{"n":"Comedy QA","v":"comedy"}]}]}
+FILTER_DEFAULT = dict(OVAL_DETAIL, vod_id="unfiltered", vod_name="Unfiltered QA", style={"type":"rect","ratio":0.75})
+FILTER_ACTION = dict(FILTER_DEFAULT, vod_id="action-filtered", vod_name="Action result QA")
+FILTER_COMEDY = dict(FILTER_DEFAULT, vod_id="comedy-filtered", vod_name="Comedy result QA")
+
 CROSS_SITE = {"key":"qa-cross","name":"Cross-source Fixture","type":1,"api":BASE+"/cross","searchable":1}
 CROSS_DETAIL = dict(DETAIL, vod_id="cross-id", vod_play_from="Trailer-first fixture",
     vod_play_url=f"Trailer${BASE}/trailer.mp4#EP01${BASE}/cross01.mp4")
@@ -157,6 +163,14 @@ class Handler(BaseHTTPRequestHandler):
         elif p=="/oval.json": payload={"sites":[OVAL_SITE]}
         elif p=="/oval-api":
             payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[OVAL_DETAIL],"page":1,"pagecount":1,"total":1}
+        elif p=="/filter.json": payload={"sites":[FILTER_SITE]}
+        elif p=="/filter-api":
+            selected = json.loads(q.get("f", ["{}"])[0]).get("genre")
+            if selected in ("action", "comedy"):
+                print(f"filter catalog selected={selected}", flush=True)
+            row = {"action":FILTER_ACTION,"comedy":FILTER_COMEDY}.get(selected,FILTER_DEFAULT)
+            payload={"class":[{"type_id":1,"type_name":"QA Filters"}],"filters":FILTERS,
+                     "list":[row],"page":1,"pagecount":1,"total":1}
         elif p=="/progress-api":
             payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[PROGRESS_DETAIL],"page":1,"pagecount":1,"total":1}
         elif p=="/progress-slow09.mp4":
