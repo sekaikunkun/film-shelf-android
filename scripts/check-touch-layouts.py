@@ -27,7 +27,7 @@ def check_view(layout, view_id=None, touch="false"):
 def check():
     for layout in ("adapter_func", "adapter_flag", "adapter_episode", "adapter_site_switch",
                    "adapter_site", "adapter_type", "adapter_vod", "adapter_vod_list", "adapter_vod_rect",
-                   "adapter_keyboard_icon", "adapter_keyboard_text", "adapter_search", "adapter_search_word",
+                   "adapter_vod_oval", "adapter_keyboard_icon", "adapter_keyboard_text", "adapter_search", "adapter_search_word",
                    "adapter_search_hot_word", "adapter_search_record", "adapter_quick"):
         check_view(layout)
     for layout, ids in {
@@ -45,7 +45,7 @@ def check():
     values = {n.get("name"): n.text for n in style}
     if values.get("android:focusable") != "true" or values.get("android:focusableInTouchMode") != "false":
         raise ValueError("fullscreen playback controls lost click/focus contract")
-    for kind in ("chip", "item", "site_item", "video_item", "keyboard", "vod", "item_round", "search_hot_word"):
+    for kind in ("chip", "item", "site_item", "video_item", "keyboard", "vod", "vod_oval", "item_round", "search_hot_word"):
         selector = ET.parse(RES / "drawable" / f"selector_{kind}.xml").getroot()
         if not any(n.get(ANDROID + "state_pressed") == "true" for n in selector):
             raise ValueError(f"selector_{kind}: missing touch feedback")

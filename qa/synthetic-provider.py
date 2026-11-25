@@ -70,6 +70,12 @@ PROGRESS_CROSS_DIRECT = dict(SITE, key="qa-progress-cross-direct", name="Direct 
 PROGRESS_CROSS_DETAIL = dict(PROGRESS_DETAIL, vod_id="progress-cross-episode01",
                             vod_play_from="Pilot", vod_play_url=f"EP01${BASE}/progress-cross01.mp4")
 
+OVAL_STYLE = {"type":"oval", "ratio":1}
+OVAL_SITE = dict(SITE, key="qa-oval", name="Oval Card Lab", api=BASE+"/oval-api", style=OVAL_STYLE)
+OVAL_DETAIL = dict(PROGRESS_DETAIL, vod_id="oval-card-episode09", vod_name="Oval Episode09",
+                   style=OVAL_STYLE, vod_play_from="Current",
+                   vod_play_url=f"EP09${BASE}/progress-current09.mp4")
+
 CROSS_SITE = {"key":"qa-cross","name":"Cross-source Fixture","type":1,"api":BASE+"/cross","searchable":1}
 CROSS_DETAIL = dict(DETAIL, vod_id="cross-id", vod_play_from="Trailer-first fixture",
     vod_play_url=f"Trailer${BASE}/trailer.mp4#EP01${BASE}/cross01.mp4")
@@ -148,6 +154,9 @@ class Handler(BaseHTTPRequestHandler):
             payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[PROGRESS_CROSS_DETAIL],"page":1,"pagecount":1,"total":1}
         elif p=="/progress-cross01.mp4":
             self.send_bytes(MEDIA,"video/mp4",True); return
+        elif p=="/oval.json": payload={"sites":[OVAL_SITE]}
+        elif p=="/oval-api":
+            payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[OVAL_DETAIL],"page":1,"pagecount":1,"total":1}
         elif p=="/progress-api":
             payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[PROGRESS_DETAIL],"page":1,"pagecount":1,"total":1}
         elif p=="/progress-slow09.mp4":

@@ -171,6 +171,9 @@ a different item focused. Do not add a second tap or a D-pad confirmation:
   tap the inactive catalog name once. The dialog should close and the selected
   catalog should become active. Repeat using D-pad focus and Center; do not
   tap the adjacent delete icon.
+- Load `/oval.json` for a circular catalog card. With a different item focused,
+  tap the title once and verify that EP09 opens. Repeat using D-pad navigation
+  and Center. The card should still give press feedback.
 - Tap a catalog card, then **Change** in the video detail view. Verify the
   choices open on the first tap. Choose a different route deliberately:
   merely opening Change must not perform a switch. Swiping a list must not
