@@ -2567,3 +2567,15 @@ diff --git a/app/src/leanback/res/drawable/selector_search_hot_word.xml b/app/sr
      <item android:drawable="@drawable/shape_search_hot_word_focused" android:state_focused="true" />
      <item android:drawable="@drawable/shape_search_hot_word_normal" />
  </selector>
+diff --git a/app/src/leanback/res/layout/adapter_config.xml b/app/src/leanback/res/layout/adapter_config.xml
+--- a/app/src/leanback/res/layout/adapter_config.xml
++++ b/app/src/leanback/res/layout/adapter_config.xml
+@@ -14,7 +14,7 @@
+         android:background="@drawable/selector_config_history_item"
+         android:ellipsize="middle"
+         android:focusable="true"
+-        android:focusableInTouchMode="true"
++        android:focusableInTouchMode="false"
+         android:gravity="center"
+         android:singleLine="true"
+         android:textColor="@color/config_history_text"

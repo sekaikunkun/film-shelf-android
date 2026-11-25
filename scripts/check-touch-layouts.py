@@ -37,6 +37,8 @@ def check():
     }.items():
         for view_id in ids:
             check_view(layout, view_id)
+    check_view("adapter_config", "text")
+    check_view("adapter_config", "delete", touch="true")
     for layout, view_id in (("activity_video", "video"), ("activity_search", "keyword")):
         check_view(layout, view_id, touch="true")
     style = ET.parse(RES / "values/styles.xml").find("./style[@name='Control']")

@@ -133,6 +133,10 @@ a different item focused. Do not add a second tap or a D-pad confirmation:
   destination once. The URL editor itself must still take touch focus and
   accept keyboard input. Confirming an already-entered synthetic URL still
   requires pressing the dialog's OK, not merely focusing it.
+- Add two uniquely named synthetic VOD catalogs. Open **VOD History** and
+  tap the inactive catalog name once. The dialog should close and the selected
+  catalog should become active. Repeat using D-pad focus and Center; do not
+  tap the adjacent delete icon.
 - Tap a catalog card, then **Change** in the video detail view. Verify the
   choices open on the first tap. Choose a different route deliberately:
   merely opening Change must not perform a switch. Swiping a list must not
