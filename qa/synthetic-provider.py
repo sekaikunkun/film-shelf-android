@@ -47,6 +47,13 @@ AUTO_DETAIL = dict(DETAIL, vod_id="auto-restart", vod_name="Automatic Episode09"
                   f"第9集${BASE}{AUTO_NAMESPACE}/removed-2.mp4$$$"
                   f"Episode01${BASE}{AUTO_NAMESPACE}/never-episode01.mp4#E09${BASE}{AUTO_NAMESPACE}/playing09.mp4"))
 
+RECOVERY_SITE = dict(SITE, key="qa-recovery", name="Recovery Lab", api=BASE+"/recovery")
+RECOVERY_DETAIL = dict(DETAIL, vod_id="recovery-episode09", vod_name="Recovery Episode09",
+    vod_play_from="Stalled$$$Wrong episode$$$Verified",
+    vod_play_url=(f"EP09${BASE}/recovery-stall09.mp4$$$"
+                  f"EP01${BASE}/recovery-never01.mp4$$$"
+                  f"E09${BASE}/recovery-verified09.mp4"))
+
 CROSS_SITE = {"key":"qa-cross","name":"Cross-source Fixture","type":1,"api":BASE+"/cross","searchable":1}
 CROSS_DETAIL = dict(DETAIL, vod_id="cross-id", vod_play_from="Trailer-first fixture",
     vod_play_url=f"Trailer${BASE}/trailer.mp4#EP01${BASE}/cross01.mp4")
@@ -102,6 +109,15 @@ class Handler(BaseHTTPRequestHandler):
         elif p==AUTO_NAMESPACE+"/removed-1.mp4": self.send_error(404); return
         elif p==AUTO_NAMESPACE+"/removed-2.mp4": self.send_error(410); return
         elif p in (AUTO_NAMESPACE+"/playing09.mp4", AUTO_NAMESPACE+"/never-episode01.mp4"):
+            self.send_bytes(MEDIA,"video/mp4",True); return
+        elif p=="/recovery.json": payload={"sites":[RECOVERY_SITE]}
+        elif p=="/recovery":
+            payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[RECOVERY_DETAIL],"page":1,"pagecount":1,"total":1}
+        elif p=="/recovery-stall09.mp4":
+            print("recovery-stall09 requested", flush=True)
+            time.sleep(24)
+            self.send_bytes(MEDIA,"video/mp4",True); return
+        elif p in ("/recovery-verified09.mp4", "/recovery-never01.mp4"):
             self.send_bytes(MEDIA,"video/mp4",True); return
         elif p=="/observer.json": payload={"sites":[OBSERVER_SITE, OBSERVER_AUTH]}
         elif p=="/observer": payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[OBSERVER_DETAIL],"page":1,"pagecount":1,"total":1}

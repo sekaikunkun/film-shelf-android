@@ -60,7 +60,7 @@ def sample(login=False, lookalike=False):
                               "content-desc": canary})
     if login or lookalike:
         for rid, value in zip(("alertTitle", "message", "button2", "button1"),
-                              ("需要扫码或登录", "完成验证后，选择重试播放。", "继续等待", "重试播放")):
+                              ("等待扫码登录", "完成登录后，选择重试播放。等待期间不会自动换线。", "继续等待", "重试播放")):
             ET.SubElement(root, "node", package=CHECK.PACKAGE, text=value,
                           attrib={"resource-id": CHECK.PACKAGE + ":id/" + (rid if login else "name")})
     return ET.tostring(root, encoding="unicode")

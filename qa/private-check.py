@@ -12,7 +12,8 @@ import xml.etree.ElementTree as ET
 
 PACKAGE = "io.github.sekaikunkun.filmshelf"
 MAX_CAPTURE = 1_048_576
-AUTH_DIALOG = {"需要扫码或登录", "完成验证后，选择重试播放。", "继续等待", "重试播放"}
+AUTH_DIALOG = {"等待扫码登录", "完成登录后，选择重试播放。等待期间不会自动换线。", "继续等待", "重试播放"}
+LEGACY_AUTH_DIALOG = {"需要扫码或登录", "完成验证后，选择重试播放。", "继续等待", "重试播放"}
 SCENARIOS = ("playback", "login_wait")
 # The user selects a numeric label unrelated to the source name or URL.
 SOURCE_LABELS = ("A", "B", "C", "D", "E", "F", "G", "H")
@@ -68,9 +69,9 @@ def decode_snapshot(data):
             continue
         resource = node.get("resource-id", "").rsplit("/", 1)[-1]
         value = node.get("text", "")
-        if value in AUTH_DIALOG and resource in {"alertTitle", "message", "button1", "button2"}:
+        if (value in AUTH_DIALOG or value in LEGACY_AUTH_DIALOG) and resource in {"alertTitle", "message", "button1", "button2"}:
             texts.add(value)
-    return AUTH_DIALOG == texts
+    return texts in (AUTH_DIALOG, LEGACY_AUTH_DIALOG)
 
 
 SESSION = re.compile(

@@ -123,6 +123,24 @@ A config already loaded in a previous run is not a valid test for this
 issue. An older orphaned record with no catalog ID must not be assigned to
 a catalog by guesswork. This test does not validate migration from an older app.
 
+## Playback wait and explicit recovery regression
+
+With the synthetic `/recovery.json` catalog, play EP09 on “Stalled”. Before
+the source responds, wait for “播放等待过久”. Choose “重试本集” and verify the
+same stalled EP09 is requested again. On the next prompt, choose “检测其他线路”.
+The result should include “Verified” for E09, while “Wrong episode” must not
+cause a request for EP01. Probing can read verified media; foreground playback
+must not switch unless the viewer selects it. Cancel once, then repeat and
+select “Verified” to confirm the same episode advances.
+
+Separately load `/qr.json` in a fresh fixture instance. An explicit challenge
+must show “等待扫码登录”, offer waiting or retry, and never offer a switch or
+report a broken line after continuing to wait. Retry must request the original
+episode again. The “Genuine timeout” line produces a timeout with a negated QR
+reference and must show timeout recovery instead of the login wait. On a
+single-line source, “检测其他线路” opens manual source search without choosing
+one. A delayed request is not enough to label a source unusable.
+
 ## Touch vs. remote regression
 
 Use the same leanback APK and a synthetic catalog. Test from a cold launch

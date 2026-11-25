@@ -341,10 +341,9 @@ index 0000000..a3aae68
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWait.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWait.java
 new file mode 100644
-index 0000000..bfe506d
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWait.java
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,66 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import java.util.Locale;
@@ -383,6 +382,11 @@ index 0000000..bfe506d
 +        stage = 0;
 +        qrWasVisible = false;
 +        active = true;
++    }
++
++    /** Rebuffering after READY gets a fresh budget, but duplicate buffering events do not postpone it. */
++    void beginIfIdle(long now) {
++        if (!active) start(now);
 +    }
 +
 +    void stop() {
@@ -604,10 +608,9 @@ index 4a19e31..6f1a6f9 100644
          else if (item.getResId() == R.string.home_search) SearchActivity.start(this);
          else if (item.getResId() == R.string.home_setting) SettingActivity.start(this);
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
-index 5a1e119..8b361ee 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
-@@ -1084,6 +1084,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1084,6 +1084,11 @@
      }
  
      private void getDetail(Vod item) {
@@ -619,7 +622,7 @@ index 5a1e119..8b361ee 100644
          revealManualSearch = false;
          if (!isAutoMode()) mViewModel.stopSearch();
          saveHistory();
-@@ -1098,7 +1103,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1098,7 +1103,6 @@
              player().reset();
              player().stop();
          }
@@ -627,7 +630,7 @@ index 5a1e119..8b361ee 100644
      }
  
      private void setDetail(Result result) {
-@@ -1123,7 +1127,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1123,7 +1127,7 @@
          } else {
              mBinding.name.setText(getName());
              App.post(mR4, 10000);
@@ -636,7 +639,7 @@ index 5a1e119..8b361ee 100644
          }
      }
  
-@@ -1178,7 +1182,380 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1178,7 +1182,393 @@
          };
      }
  
@@ -882,7 +885,7 @@ index 5a1e119..8b361ee 100644
 +            scheduleFamilyTick();
 +            return;
 +        }
-+        boolean obscured = !hasWindowFocus();
++        boolean obscured = !hasWindowFocus() || familyScanDialog != null || mQuickSearchDialog != null;
 +        long now = android.os.SystemClock.elapsedRealtime();
 +        if (familyLoginWait) {
 +            if (!obscured && familyAuthNotice) {
@@ -898,10 +901,10 @@ index 5a1e119..8b361ee 100644
 +            if (expiredBehindOverlay) familyWait.start(now);
 +            else {
 +                applyFamilyFailure(error);
-+                if (!tryFamilyNextLine(error)) showFamilyRecovery(true);
++                if (!tryFamilyNextLine(error)) showFamilyRecovery(FamilyPlaybackWait.classifyFailure(error));
 +            }
 +        } else if (familyWait.shouldPrompt(now, obscured)) {
-+            showFamilyRecovery(false);
++            showFamilyRecovery(null);
 +        }
 +        scheduleFamilyTick();
 +    }
@@ -968,10 +971,10 @@ index 5a1e119..8b361ee 100644
 +
 +    private void showFamilyLogin() {
 +        familyDialog = new MaterialAlertDialogBuilder(this)
-+                .setTitle("需要扫码或登录")
-+                .setMessage("完成验证后，选择重试播放。")
-+                .setNegativeButton("继续等待", null)
-+                .setPositiveButton("重试播放", (dialog, which) -> onRefresh())
++                .setTitle(R.string.family_login_wait_title)
++                .setMessage(R.string.family_login_wait_message)
++                .setNegativeButton(R.string.family_wait_continue, null)
++                .setPositiveButton(R.string.family_login_retry, (dialog, which) -> retryFamilyEpisode())
 +                .create();
 +        familyDialog.setOnDismissListener(dialog -> {
 +            if (familyDialog == dialog) familyDialog = null;
@@ -979,25 +982,38 @@ index 5a1e119..8b361ee 100644
 +        familyDialog.show();
 +    }
 +
-+    private void showFamilyRecovery(boolean failed) {
++    private boolean hasFamilyEpisode() {
++        return mFlagAdapter.getItemCount() > 0 && mEpisodeAdapter.getItemCount() > 0;
++    }
++
++    private void retryFamilyEpisode() {
++        if (!hasFamilyEpisode() || service() == null || isFinishing() || isDestroyed()) return;
++        stopFamilyWait();
++        onRefresh(); // Reuses the selected flag and episode without falling back by index.
++    }
++
++    private void openFamilyRecoveryScan() {
++        if (familyLoginWait || !familyResumed || isFinishing() || isDestroyed()) return;
++        stopFamilyWait();
++        if (hasFamilyEpisode() && mFlagAdapter.getItemCount() > 1) startFamilyLocalScan();
++        else openFamilyCrossSearch();
++    }
++
++    private void showFamilyRecovery(FamilyPlaybackWait.Failure failure) {
 +        if (!familyResumed || isFinishing() || isDestroyed() || !hasWindowFocus()) return;
 +        if (familyDialog != null && familyDialog.isShowing()) return;
-+        int flag = isGone(mBinding.flag) ? -1 : mFlagAdapter.getPosition();
-+        boolean hasAnotherFlag = flag >= 0 && flag + 1 < mFlagAdapter.getItemCount();
-+        final String title = mBinding.name.getText().toString().trim();
-+        familyDialog = new MaterialAlertDialogBuilder(this)
-+                .setTitle(failed ? R.string.family_error_title : R.string.family_wait_title)
-+                .setMessage(failed ? "可以重试，也可以先试同一来源的下一条线路。" : "如果正在扫码或授权，可以继续等待。不会自动换源。")
-+                .setNegativeButton(R.string.family_wait_continue, null)
-+                .setNeutralButton(R.string.family_retry, (dialog, which) -> {
-+                    stopFamilyWait();
-+                    onRefresh();
-+                })
-+                .setPositiveButton(hasAnotherFlag ? "试下一条线路" : "查找其他来源", (dialog, which) -> {
-+                    stopFamilyWait();
-+                    if (hasAnotherFlag && flag + 1 < mFlagAdapter.getItemCount()) nextFlag(flag);
-+                    else if (!title.isEmpty()) initSearch(title, false);
-+                }).create();
++        boolean stillLoading = failure == null;
++        boolean hardFailure = failure == FamilyPlaybackWait.Failure.HARD;
++        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this)
++                .setTitle(stillLoading ? R.string.family_wait_title
++                        : hardFailure ? R.string.family_error_title : R.string.family_timeout_title)
++                .setMessage(stillLoading ? R.string.family_wait_message : R.string.family_recovery_message)
++                .setNegativeButton(stillLoading ? R.string.family_wait_continue : R.string.family_recovery_close, null);
++        if (hasFamilyEpisode()) builder.setNeutralButton(R.string.family_retry, (dialog, which) -> retryFamilyEpisode());
++        if (!mBinding.name.getText().toString().isBlank()) {
++            builder.setPositiveButton(R.string.family_recovery_scan, (dialog, which) -> openFamilyRecoveryScan());
++        }
++        familyDialog = builder.create();
 +        familyDialog.setOnDismissListener(dialog -> {
 +            if (familyDialog == dialog) familyDialog = null;
 +        });
@@ -1017,7 +1033,7 @@ index 5a1e119..8b361ee 100644
          mBinding.widget.title.setText(getString(R.string.detail_title, mBinding.name.getText(), episode.getName()));
          playerStartTime = System.currentTimeMillis();
          beginPlayHealth();
-@@ -1208,6 +1585,12 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1208,6 +1598,12 @@
  
      private void setPlayer(Result result) {
          if (isFinishing() || isDestroyed()) return;
@@ -1030,7 +1046,7 @@ index 5a1e119..8b361ee 100644
          SpiderDebug.log("video-flow", "player finish cost=%dms useParse=%s multi=%s msg=%s", System.currentTimeMillis() - playerStartTime, result.shouldUseParse(), result.getUrl().isMulti(), result.getMsg());
          if (service() == null) {
              mPendingPlayer = result;
-@@ -1257,6 +1640,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1257,6 +1653,10 @@
  
      @Override
      public void onItemClick(Flag item) {
@@ -1041,7 +1057,7 @@ index 5a1e119..8b361ee 100644
          if (isFinishing() || isDestroyed() || mFlagAdapter.getItemCount() == 0 || item.isSelected()) return;
          int oldPosition = mFlagAdapter.getSelectedPosition();
          mFlagAdapter.setSelected(item);
-@@ -1265,7 +1652,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1265,7 +1665,8 @@
          notifyItemsChanged(mBinding.flag, mFlagAdapter, oldPosition, newPosition);
          setEpisodeAdapter(item.getEpisodes());
          setQualityVisible(false);
@@ -1051,7 +1067,7 @@ index 5a1e119..8b361ee 100644
      }
  
      private void setEpisodeAdapter(List<Episode> items) {
-@@ -2471,7 +2859,23 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -2471,7 +2872,23 @@
      }
  
      private void onChange() {
@@ -1076,7 +1092,7 @@ index 5a1e119..8b361ee 100644
      }
  
      private void onFullscreen() {
-@@ -3640,11 +4044,36 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -3640,11 +4057,36 @@
      }
  
      private void checkFlag(Vod item) {
@@ -1114,7 +1130,7 @@ index 5a1e119..8b361ee 100644
              onItemClick(mHistory.getFlag());
              if (mHistory.isRevSort()) reverseEpisode(true);
          }
-@@ -5460,6 +5889,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5460,6 +5902,18 @@
  
      @Override
      protected void onError(String msg) {
@@ -1133,7 +1149,7 @@ index 5a1e119..8b361ee 100644
          recordPlayHealth(false, msg);
          Track.delete(player().getKey());
          mClock.setCallback(null);
-@@ -5469,7 +5910,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5469,7 +5923,6 @@
          player().reset();
          player().stop();
          showError(msg);
@@ -1141,15 +1157,32 @@ index 5a1e119..8b361ee 100644
      }
  
      @Override
-@@ -5495,6 +5935,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5492,9 +5945,16 @@
+     protected void onStateChanged(int state) {
+         switch (state) {
+             case Player.STATE_BUFFERING:
++                if (familyLoginWait) break;
++                if (controller().getPlayWhenReady()) {
++                    familyWait.beginIfIdle(android.os.SystemClock.elapsedRealtime());
++                    scheduleFamilyTick();
++                }
                  showProgress();
                  break;
              case Player.STATE_READY:
++                if (familyLoginWait) break;
 +                stopFamilyWait();
                  mKaraokeResultShown = false;
                  recordPlayHealth(true, "");
                  hideProgress();
-@@ -5665,14 +6106,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5502,6 +5962,7 @@
+                 player().reset();
+                 break;
+             case Player.STATE_ENDED:
++                stopFamilyWait();
+                 checkEnded(true);
+                 break;
+         }
+@@ -5665,14 +6126,19 @@
  
      private void checkFlag() {
          int position = isGone(mBinding.flag) ? -1 : mFlagAdapter.getPosition();
@@ -1173,7 +1206,7 @@ index 5a1e119..8b361ee 100644
      }
  
      private void initSearch(String keyword, boolean auto) {
-@@ -5730,7 +6176,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5730,7 +6196,7 @@
              mQuickSearchDialog.addAll(items);
              return;
          }
@@ -1182,7 +1215,7 @@ index 5a1e119..8b361ee 100644
          dialog.dismissListener(d -> {
              if (mQuickSearchDialog != dialog) return;
              mQuickSearchDialog = null;
-@@ -5748,14 +6194,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5748,14 +6214,17 @@
  
      @Override
      public void onItemClick(Vod item) {
@@ -1202,7 +1235,7 @@ index 5a1e119..8b361ee 100644
          String keyword = Objects.toString(mBinding.part.getTag(), "");
          if (isAutoMode()) return !item.getName().equals(keyword);
          else return !item.getName().contains(keyword);
-@@ -5779,7 +6228,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5779,7 +6248,7 @@
          Vod item = mQuickAdapter.get(position);
          Notify.show(getString(R.string.play_switch_site, item.getSiteName()));
          mQuickAdapter.remove(position);
@@ -1211,11 +1244,10 @@ index 5a1e119..8b361ee 100644
          setInitAuto(false);
          applySearchArtwork(item);
          getDetail(item);
-@@ -6323,6 +6772,21 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
-         if (service() != null) refreshLyrics();
+@@ -6324,6 +6793,22 @@
      }
  
-+    @Override
+     @Override
 +    protected void onResume() {
 +        super.onResume();
 +        familyResumed = true;
@@ -1226,14 +1258,16 @@ index 5a1e119..8b361ee 100644
 +    protected void onPause() {
 +        cancelFamilyScan();
 +        familyResumed = false;
++        familyWait.shouldPrompt(android.os.SystemClock.elapsedRealtime(), true);
 +        App.removeCallbacks(familyTick);
 +        super.onPause();
 +    }
 +
-     @Override
++    @Override
      protected void onStop() {
          super.onStop();
-@@ -6354,6 +6818,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+         if (mOsd != null) mOsd.stop();
+@@ -6354,6 +6839,7 @@
      }
  
      private void finishVideoPlaybackNow() {
@@ -1241,7 +1275,7 @@ index 5a1e119..8b361ee 100644
          mViewModel.stopSearch();
          saveHistory(true);
          markPlaybackExiting();
-@@ -6364,6 +6829,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6364,6 +6850,8 @@
  
      @Override
      protected void onDestroy() {
@@ -1776,10 +1810,9 @@ index 577e025..93bcc3c 100644
          android:layout_height="0dp"
 diff --git a/app/src/leanback/res/values/family_port.xml b/app/src/leanback/res/values/family_port.xml
 new file mode 100644
-index 0000000..afb6724
 --- /dev/null
 +++ b/app/src/leanback/res/values/family_port.xml
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,22 @@
 +<resources>
 +    <string name="family_advanced">高级设置</string>
 +    <string name="family_common">常用设置</string>
@@ -1788,9 +1821,17 @@ index 0000000..afb6724
 +    <string name="family_scale_fill">铺满画面</string>
 +    <string name="family_scale_zoom">裁切放大</string>
 +    <string name="family_live_disabled">已关闭直播</string>
-+    <string name="family_wait_title">视频还没开始播放</string>
++    <string name="family_wait_title">播放等待过久</string>
 +    <string name="family_error_title">暂时无法播放</string>
-+    <string name="family_retry">重试本线路</string>
++    <string name="family_timeout_title">播放连接超时</string>
++    <string name="family_wait_message">加载还没完成。可以继续等待、重试本集，或检测其他线路。</string>
++    <string name="family_recovery_message">可以重试本集，或检测其他线路。检测不会自动切换。</string>
++    <string name="family_retry">重试本集</string>
++    <string name="family_recovery_scan">检测其他线路</string>
++    <string name="family_recovery_close">关闭</string>
++    <string name="family_login_wait_title">等待扫码登录</string>
++    <string name="family_login_wait_message">完成登录后，选择重试播放。等待期间不会自动换线。</string>
++    <string name="family_login_retry">重试播放</string>
 +    <string name="family_wait_continue">继续等待</string>
 +    <string name="family_wait_switch">切换来源</string>
 +</resources>
@@ -2190,10 +2231,9 @@ index 0000000..872cbea
 +</resources>
 diff --git a/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWaitPolicyTest.java b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWaitPolicyTest.java
 new file mode 100644
-index 0000000..86cf3ce
 --- /dev/null
 +++ b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyPlaybackWaitPolicyTest.java
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,74 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import org.junit.Test;
@@ -2243,6 +2283,18 @@ index 0000000..86cf3ce
 +        assertTrue(wait.shouldPrompt(150_000, false));
 +        assertTrue(wait.shouldPrompt(170_000, false));
 +        assertFalse(wait.shouldPrompt(171_000, false));
++    }
++
++    @Test public void rebufferingRearmsAfterReadyWithoutResettingOnDuplicateEvents() {
++        FamilyPlaybackWait wait = new FamilyPlaybackWait();
++        wait.start(100);
++        wait.beginIfIdle(5_100);
++        assertTrue(wait.shouldPrompt(10_100, false));
++        wait.stop(); // READY, or successful recovery.
++        wait.beginIfIdle(30_000);
++        assertFalse(wait.shouldPrompt(39_999, false));
++        wait.beginIfIdle(39_999);
++        assertTrue(wait.shouldPrompt(40_000, false));
 +    }
 +
 +    @Test public void stopAndStartClearsOldOverlayAndDeadline() {
