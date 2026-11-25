@@ -54,6 +54,22 @@ RECOVERY_DETAIL = dict(DETAIL, vod_id="recovery-episode09", vod_name="Recovery E
                   f"EP01${BASE}/recovery-never01.mp4$$$"
                   f"E09${BASE}/recovery-verified09.mp4"))
 
+PROGRESS_SITE = dict(SITE, key="qa-progress", name="Progress Lab", api=BASE+"/progress-api")
+PROGRESS_DETAIL = dict(DETAIL, vod_id="progress-episode09", vod_name="Progress Episode09",
+    vod_play_from="Current$$$Slow disc$$$Login disc$$$Forbidden disc$$$Verified disc",
+    vod_play_url=(f"EP09${BASE}/progress-current09.mp4$$$"
+                  f"EP09${BASE}/progress-slow09.mp4$$$"
+                  f"EP09${BASE}/progress-login09.mp4$$$"
+                  f"EP09${BASE}/progress-forbidden09.mp4$$$"
+                  f"EP09${BASE}/progress-verified09.mp4"))
+
+PROGRESS_CROSS_AUTH = dict(SITE, key="qa-progress-cross-auth", name="Login source",
+                          api=BASE+"/progress-cross-auth")
+PROGRESS_CROSS_DIRECT = dict(SITE, key="qa-progress-cross-direct", name="Direct source",
+                            api=BASE+"/progress-cross-direct")
+PROGRESS_CROSS_DETAIL = dict(PROGRESS_DETAIL, vod_id="progress-cross-episode01",
+                            vod_play_from="Pilot", vod_play_url=f"EP01${BASE}/progress-cross01.mp4")
+
 CROSS_SITE = {"key":"qa-cross","name":"Cross-source Fixture","type":1,"api":BASE+"/cross","searchable":1}
 CROSS_DETAIL = dict(DETAIL, vod_id="cross-id", vod_play_from="Trailer-first fixture",
     vod_play_url=f"Trailer${BASE}/trailer.mp4#EP01${BASE}/cross01.mp4")
@@ -118,6 +134,35 @@ class Handler(BaseHTTPRequestHandler):
             time.sleep(24)
             self.send_bytes(MEDIA,"video/mp4",True); return
         elif p in ("/recovery-verified09.mp4", "/recovery-never01.mp4"):
+            self.send_bytes(MEDIA,"video/mp4",True); return
+        elif p=="/progress.json": payload={"sites":[PROGRESS_SITE]}
+        elif p=="/progress-cross.json": payload={"sites":[PROGRESS_SITE, PROGRESS_CROSS_AUTH, PROGRESS_CROSS_DIRECT]}
+        elif p in ("/progress-cross-auth", "/progress-cross-direct"):
+            if q.get("ids"):
+                time.sleep(2)
+                if p.endswith("auth"):
+                    self.send_response(401)
+                    self.send_header("WWW-Authenticate", 'Basic realm="Synthetic QA"')
+                    self.send_header("Content-Length", "0")
+                    self.end_headers(); return
+            payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[PROGRESS_CROSS_DETAIL],"page":1,"pagecount":1,"total":1}
+        elif p=="/progress-cross01.mp4":
+            self.send_bytes(MEDIA,"video/mp4",True); return
+        elif p=="/progress-api":
+            payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[PROGRESS_DETAIL],"page":1,"pagecount":1,"total":1}
+        elif p=="/progress-slow09.mp4":
+            print("progress slow candidate requested", flush=True)
+            time.sleep(8)
+            self.send_bytes(MEDIA,"video/mp4",True); return
+        elif p=="/progress-login09.mp4":
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="Synthetic QA"')
+            self.send_header("Content-Length", "0")
+            self.end_headers(); return
+        elif p=="/progress-forbidden09.mp4":
+            time.sleep(2)
+            self.send_error(403); return
+        elif p in ("/progress-current09.mp4", "/progress-verified09.mp4"):
             self.send_bytes(MEDIA,"video/mp4",True); return
         elif p=="/observer.json": payload={"sites":[OBSERVER_SITE, OBSERVER_AUTH]}
         elif p=="/observer": payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[OBSERVER_DETAIL],"page":1,"pagecount":1,"total":1}

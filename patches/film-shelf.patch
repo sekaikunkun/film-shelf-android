@@ -35,10 +35,9 @@ index 799122e..f11f471 100644
              android:launchMode="singleTop"
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java
 new file mode 100644
-index 0000000..a3aae68
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java
-@@ -0,0 +1,300 @@
+@@ -0,0 +1,320 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import android.content.Context;
@@ -51,6 +50,7 @@ index 0000000..a3aae68
 +import androidx.media3.common.Player;
 +import androidx.media3.common.util.UnstableApi;
 +import androidx.media3.datasource.DefaultHttpDataSource;
++import androidx.media3.datasource.HttpDataSource;
 +import androidx.media3.exoplayer.ExoPlayer;
 +import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 +import androidx.media3.exoplayer.video.PlaceholderSurface;
@@ -84,13 +84,14 @@ index 0000000..a3aae68
 +    private static final long ROUTE_MILLIS = 6500;
 +    record Candidate(Vod vod, Site site) {}
 +    record Route(String flag, String episode, String url) {}
-+    record Outcome(Candidate candidate, Route playable, boolean attempted) {}
++    record Outcome(Candidate candidate, Route playable, boolean attempted, boolean loginRequired) {}
++    private static final class LoginRequired extends IOException {}
 +    interface Listener {
 +        void progress(int done, int total, String source);
 +        void complete(List<Outcome> outcomes);
 +    }
 +
-+    record LocalOutcome(Route route, boolean playable) {}
++    record LocalOutcome(Route route, FamilyRouteProbePolicy.ProbeResult result) {}
 +    interface LocalListener {
 +        void progress(int done, int total, String route);
 +        void complete(List<LocalOutcome> outcomes);
@@ -113,6 +114,7 @@ index 0000000..a3aae68
 +    private ExoPlayer probe;
 +    private PlaceholderSurface surface;
 +    private boolean rendered;
++    private boolean sourceLoginRequired;
 +    private long positionAtFrame;
 +    private final Runnable sample = this::sampleProgress;
 +    private Runnable timeout;
@@ -178,14 +180,24 @@ index 0000000..a3aae68
 +        else nextRoute();
 +    }
 +
-+    private void finishRoute(boolean playable) {
++    private void finishRoute(FamilyRouteProbePolicy.ProbeResult result) {
 +        if (local == null) {
-+            if (playable) finishSource(routes.get(routeIndex - 1), true);
++            if (result == FamilyRouteProbePolicy.ProbeResult.LOGIN_REQUIRED) sourceLoginRequired = true;
++            if (result == FamilyRouteProbePolicy.ProbeResult.PLAYABLE) finishSource(routes.get(routeIndex - 1), true);
 +            else nextRoute();
 +        } else {
-+            localOutcomes.add(new LocalOutcome(routes.get(routeIndex - 1), playable));
++            localOutcomes.add(new LocalOutcome(routes.get(routeIndex - 1), result));
 +            nextRoute();
 +        }
++    }
++
++    private static FamilyRouteProbePolicy.ProbeResult classifyProbeFailure(PlaybackException error) {
++        Throwable cause = error;
++        for (int i = 0; i < 8 && cause != null; i++, cause = cause.getCause()) {
++            if (cause instanceof HttpDataSource.InvalidResponseCodeException response)
++                return FamilyRouteProbePolicy.httpFailure(response.responseCode);
++        }
++        return FamilyRouteProbePolicy.ProbeResult.UNVERIFIED;
 +    }
 +
 +    void close() {
@@ -206,14 +218,19 @@ index 0000000..a3aae68
 +            return;
 +        }
 +        Candidate c = sources.get(sourceIndex);
++        sourceLoginRequired = false;
 +        listener.progress(sourceIndex, sources.size(), c.vod().getSiteName());
 +        worker.execute(() -> {
 +            List<Route> result;
++            boolean login = false;
 +            try { result = loadRoutes(c); }
++            catch (LoginRequired ignored) { login = true; result = Collections.emptyList(); }
 +            catch (IOException | RuntimeException ignored) { result = Collections.emptyList(); }
 +            final List<Route> delivered = result;
++            final boolean needsLogin = login;
 +            main.post(() -> {
 +                if (!active) return;
++                sourceLoginRequired = needsLogin;
 +                routes = delivered;
 +                routeIndex = 0;
 +                if (routes.isEmpty()) finishSource(null, false);
@@ -254,6 +271,8 @@ index 0000000..a3aae68
 +        call = request;
 +        if (worker.isShutdown()) { request.cancel(); return null; }
 +        try (Response response = request.execute()) {
++            if (FamilyRouteProbePolicy.httpFailure(response.code()) == FamilyRouteProbePolicy.ProbeResult.LOGIN_REQUIRED)
++                throw new LoginRequired();
 +            if (!response.isSuccessful() || response.body() == null) return null;
 +            BufferedSource body = response.body().source();
 +            if (body.request(DETAIL_BYTES + 1)) return null;
@@ -297,7 +316,7 @@ index 0000000..a3aae68
 +                }
 +                @Override public void onPlayerError(PlaybackException error) {
 +                    if (active && version == probeVersion) main.post(() -> {
-+                        if (active && version == probeVersion) finishRoute(false);
++                        if (active && version == probeVersion) finishRoute(classifyProbeFailure(error));
 +                    });
 +                }
 +            });
@@ -305,17 +324,17 @@ index 0000000..a3aae68
 +            probe.setMediaItem(MediaItem.fromUri(route.url()));
 +            probe.prepare();
 +            probe.play();
-+            timeout = () -> { if (active && version == probeVersion) finishRoute(false); };
++            timeout = () -> { if (active && version == probeVersion) finishRoute(FamilyRouteProbePolicy.ProbeResult.UNVERIFIED); };
 +            main.postDelayed(timeout, ROUTE_MILLIS);
 +        } catch (RuntimeException ignored) {
-+            main.post(() -> { if (active && version == probeVersion) finishRoute(false); });
++            main.post(() -> { if (active && version == probeVersion) finishRoute(FamilyRouteProbePolicy.ProbeResult.UNVERIFIED); });
 +        }
 +    }
 +
 +    private void sampleProgress() {
 +        if (!active || probe == null || !rendered) return;
 +        if (FamilyRouteProbePolicy.confirmed(true, positionAtFrame, probe.getCurrentPosition()))
-+            finishRoute(true);
++            finishRoute(FamilyRouteProbePolicy.ProbeResult.PLAYABLE);
 +        else main.postDelayed(sample, 150);
 +    }
 +
@@ -335,7 +354,7 @@ index 0000000..a3aae68
 +
 +    private void finishSource(Route playable, boolean tried) {
 +        stopProbe();
-+        outcomes.add(new Outcome(sources.get(sourceIndex++), playable, tried));
++        outcomes.add(new Outcome(sources.get(sourceIndex++), playable, tried, sourceLoginRequired));
 +        nextSource();
 +    }
 +}
@@ -412,10 +431,9 @@ new file mode 100644
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java
 new file mode 100644
-index 0000000..91c4763
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,128 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import java.net.URI;
@@ -431,7 +449,20 @@ index 0000000..91c4763
 +    private static final Pattern EPISODE_NUMBER = Pattern.compile("(?:episode|ep\\.?|e|第)?\\s*0*([0-9]{1,4})\\s*(?:集|话|話)?");
 +    static final int MIN_ADVANCE_MS = 350;
 +
-+    enum LocalStatus { PROBE, MANUAL_ONLY, LIMIT_REACHED, NO_MATCH, PLAYABLE, UNVERIFIED }
++    enum LocalStatus { PROBE, MANUAL_ONLY, LIMIT_REACHED, NO_MATCH, PLAYABLE, LOGIN_REQUIRED, UNVERIFIED }
++    enum ProbeResult { PLAYABLE, LOGIN_REQUIRED, UNVERIFIED }
++
++    static ProbeResult httpFailure(int responseCode) {
++        return responseCode == 401 ? ProbeResult.LOGIN_REQUIRED : ProbeResult.UNVERIFIED;
++    }
++
++    static LocalStatus localResult(ProbeResult result) {
++        return switch (result) {
++            case PLAYABLE -> LocalStatus.PLAYABLE;
++            case LOGIN_REQUIRED -> LocalStatus.LOGIN_REQUIRED;
++            case UNVERIFIED -> LocalStatus.UNVERIFIED;
++        };
++    }
 +
 +    static LocalStatus localStatus(boolean matched, boolean plain, String url, int scheduled) {
 +        if (!matched) return LocalStatus.NO_MATCH;
@@ -441,7 +472,8 @@ index 0000000..91c4763
 +
 +    static boolean canSelect(LocalStatus status) {
 +        return status == LocalStatus.PLAYABLE || status == LocalStatus.MANUAL_ONLY
-+                || status == LocalStatus.LIMIT_REACHED || status == LocalStatus.UNVERIFIED;
++                || status == LocalStatus.LIMIT_REACHED || status == LocalStatus.UNVERIFIED
++                || status == LocalStatus.LOGIN_REQUIRED;
 +    }
 +
 +    static String identity(String site, String id) {
@@ -639,7 +671,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          }
      }
  
-@@ -1178,7 +1182,393 @@
+@@ -1178,7 +1182,397 @@
          };
      }
  
@@ -663,15 +695,34 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
 +
 +    private FamilyDirectRouteScan familyScan;
 +    private AlertDialog familyScanDialog;
++    private FamilyScanProgress familyScanProgress;
 +    private FamilyDirectRouteScan.Outcome familyScanSelection;
 +
 +    private void cancelFamilyScan() {
 +        FamilyDirectRouteScan scan = familyScan;
 +        familyScan = null;
 +        if (scan != null) scan.close();
++        FamilyScanProgress panel = familyScanProgress;
++        familyScanProgress = null;
++        if (panel != null) panel.stopAnimation();
 +        AlertDialog dialog = familyScanDialog;
 +        familyScanDialog = null;
 +        if (dialog != null) dialog.dismiss();
++    }
++
++    private AlertDialog newFamilyScanProgress(String title, boolean cross) {
++        FamilyScanProgress panel = new FamilyScanProgress(this, title, cross, this::cancelFamilyScan);
++        AlertDialog dialog = panel.dialog();
++        familyScanProgress = panel;
++        familyScanDialog = dialog;
++        dialog.setOnDismissListener(dismissed -> {
++            if (familyScanDialog == dialog) cancelFamilyScan();
++        });
++        return dialog;
++    }
++
++    private void updateFamilyScanProgress(AlertDialog dialog, int done, int total, String label) {
++        if (familyScanDialog == dialog && familyScanProgress != null) familyScanProgress.update(done, total, label);
 +    }
 +
 +    private record FamilyLocalLine(Flag flag, Episode episode, FamilyRouteProbePolicy.LocalStatus status) {}
@@ -706,18 +757,10 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
 +            showFamilyLocalResults(lines, current, currentFlag, sourceKey, vodId);
 +            return;
 +        }
-+        AlertDialog progress = new MaterialAlertDialogBuilder(this)
-+                .setTitle("检测本集线路 · " + episodeName)
-+                .setMessage("准备检测…")
-+                .setNegativeButton("取消", null).create();
-+        familyScanDialog = progress;
-+        progress.setOnDismissListener(dismissed -> {
-+            if (familyScanDialog == progress) cancelFamilyScan();
-+        });
++        AlertDialog progress = newFamilyScanProgress(getString(R.string.family_scan_episode_title, episodeName), false);
 +        familyScan = new FamilyDirectRouteScan(this, routes, new FamilyDirectRouteScan.LocalListener() {
 +            @Override public void progress(int done, int total, String route) {
-+                if (familyScanDialog == progress)
-+                    progress.setMessage("已检测 " + done + " / " + total + " 条可自动检测的线路\n正在检测：" + route);
++                updateFamilyScanProgress(progress, done, total, route);
 +            }
 +            @Override public void complete(List<FamilyDirectRouteScan.LocalOutcome> outcomes) {
 +                if (familyScanDialog != progress || !familyResumed || isFinishing() || isDestroyed()) return;
@@ -727,9 +770,9 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
 +                for (int i = 0; i < lines.size(); i++) {
 +                    FamilyLocalLine line = lines.get(i);
 +                    if (line.status() != FamilyRouteProbePolicy.LocalStatus.PROBE) continue;
-+                    boolean playable = outcomes.get(probe++).playable();
-+                    lines.set(i, new FamilyLocalLine(line.flag(), line.episode(), playable
-+                            ? FamilyRouteProbePolicy.LocalStatus.PLAYABLE : FamilyRouteProbePolicy.LocalStatus.UNVERIFIED));
++                    FamilyRouteProbePolicy.LocalStatus status =
++                            FamilyRouteProbePolicy.localResult(outcomes.get(probe++).result());
++                    lines.set(i, new FamilyLocalLine(line.flag(), line.episode(), status));
 +                }
 +                showFamilyLocalResults(lines, current, currentFlag, sourceKey, vodId);
 +            }
@@ -749,6 +792,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
 +            case PLAYABLE -> "已确认可播";
 +            case MANUAL_ONLY -> "无法自动验证，可手动试播";
 +            case LIMIT_REACHED, PROBE -> "未检测，可手动试播";
++            case LOGIN_REQUIRED -> getString(R.string.family_scan_login_required);
 +            case UNVERIFIED -> "未确认可播，可手动试播";
 +            case NO_MATCH -> "未找到匹配的本集";
 +        }).toArray(CharSequence[]::new);
@@ -799,19 +843,10 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
 +        cancelFamilyScan();
 +        stopFamilyWait();
 +        dismissQuickSearchDialog();
-+        AlertDialog progress = new MaterialAlertDialogBuilder(this)
-+                .setTitle("检测可播线路")
-+                .setMessage("正在读取其他来源…")
-+                .setNegativeButton("取消", null)
-+                .create();
-+        familyScanDialog = progress;
-+        progress.setOnDismissListener(dialog -> {
-+            if (familyScanDialog == progress) cancelFamilyScan();
-+        });
++        AlertDialog progress = newFamilyScanProgress(getString(R.string.family_scan_source_title), true);
 +        familyScan = new FamilyDirectRouteScan(this, found, new FamilyDirectRouteScan.Listener() {
 +            @Override public void progress(int done, int total, String source) {
-+                if (familyScanDialog == progress)
-+                    progress.setMessage("已检测 " + done + " / " + total + " 个来源\n正在检测：" + source);
++                updateFamilyScanProgress(progress, done, total, source);
 +            }
 +            @Override public void complete(List<FamilyDirectRouteScan.Outcome> outcomes) {
 +                if (familyScanDialog != progress || !familyResumed || isFinishing() || isDestroyed()) return;
@@ -826,6 +861,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
 +    private void showFamilyScanResults(List<FamilyDirectRouteScan.Outcome> results, String previousEpisode) {
 +        CharSequence[] rows = results.stream().map(outcome -> outcome.candidate().vod().getSiteName()
 +                + "  ·  " + (outcome.playable() != null ? "可播，从 " + outcome.playable().episode() + " 开始"
++                : outcome.loginRequired() ? getString(R.string.family_scan_login_required)
 +                : outcome.attempted() ? "未确认起播集可播" : "无法自动确认起播集")).toArray(CharSequence[]::new);
 +        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
 +                .setTitle(previousEpisode.isEmpty() ? "检测结果" : "检测结果 · 原集数 " + previousEpisode)
@@ -1033,7 +1069,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          mBinding.widget.title.setText(getString(R.string.detail_title, mBinding.name.getText(), episode.getName()));
          playerStartTime = System.currentTimeMillis();
          beginPlayHealth();
-@@ -1208,6 +1598,12 @@
+@@ -1208,6 +1602,12 @@
  
      private void setPlayer(Result result) {
          if (isFinishing() || isDestroyed()) return;
@@ -1046,7 +1082,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          SpiderDebug.log("video-flow", "player finish cost=%dms useParse=%s multi=%s msg=%s", System.currentTimeMillis() - playerStartTime, result.shouldUseParse(), result.getUrl().isMulti(), result.getMsg());
          if (service() == null) {
              mPendingPlayer = result;
-@@ -1257,6 +1653,10 @@
+@@ -1257,6 +1657,10 @@
  
      @Override
      public void onItemClick(Flag item) {
@@ -1057,7 +1093,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          if (isFinishing() || isDestroyed() || mFlagAdapter.getItemCount() == 0 || item.isSelected()) return;
          int oldPosition = mFlagAdapter.getSelectedPosition();
          mFlagAdapter.setSelected(item);
-@@ -1265,7 +1665,8 @@
+@@ -1265,7 +1669,8 @@
          notifyItemsChanged(mBinding.flag, mFlagAdapter, oldPosition, newPosition);
          setEpisodeAdapter(item.getEpisodes());
          setQualityVisible(false);
@@ -1067,7 +1103,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
      }
  
      private void setEpisodeAdapter(List<Episode> items) {
-@@ -2471,7 +2872,23 @@
+@@ -2471,7 +2876,23 @@
      }
  
      private void onChange() {
@@ -1092,7 +1128,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
      }
  
      private void onFullscreen() {
-@@ -3640,11 +4057,36 @@
+@@ -3640,11 +4061,36 @@
      }
  
      private void checkFlag(Vod item) {
@@ -1130,7 +1166,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
              onItemClick(mHistory.getFlag());
              if (mHistory.isRevSort()) reverseEpisode(true);
          }
-@@ -5460,6 +5902,18 @@
+@@ -5460,6 +5906,18 @@
  
      @Override
      protected void onError(String msg) {
@@ -1149,7 +1185,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          recordPlayHealth(false, msg);
          Track.delete(player().getKey());
          mClock.setCallback(null);
-@@ -5469,7 +5923,6 @@
+@@ -5469,7 +5927,6 @@
          player().reset();
          player().stop();
          showError(msg);
@@ -1157,7 +1193,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
      }
  
      @Override
-@@ -5492,9 +5945,16 @@
+@@ -5492,9 +5949,16 @@
      protected void onStateChanged(int state) {
          switch (state) {
              case Player.STATE_BUFFERING:
@@ -1174,7 +1210,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
                  mKaraokeResultShown = false;
                  recordPlayHealth(true, "");
                  hideProgress();
-@@ -5502,6 +5962,7 @@
+@@ -5502,6 +5966,7 @@
                  player().reset();
                  break;
              case Player.STATE_ENDED:
@@ -1182,7 +1218,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
                  checkEnded(true);
                  break;
          }
-@@ -5665,14 +6126,19 @@
+@@ -5665,14 +6130,19 @@
  
      private void checkFlag() {
          int position = isGone(mBinding.flag) ? -1 : mFlagAdapter.getPosition();
@@ -1206,7 +1242,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
      }
  
      private void initSearch(String keyword, boolean auto) {
-@@ -5730,7 +6196,7 @@
+@@ -5730,7 +6200,7 @@
              mQuickSearchDialog.addAll(items);
              return;
          }
@@ -1215,7 +1251,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          dialog.dismissListener(d -> {
              if (mQuickSearchDialog != dialog) return;
              mQuickSearchDialog = null;
-@@ -5748,14 +6214,17 @@
+@@ -5748,14 +6218,17 @@
  
      @Override
      public void onItemClick(Vod item) {
@@ -1235,7 +1271,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          String keyword = Objects.toString(mBinding.part.getTag(), "");
          if (isAutoMode()) return !item.getName().equals(keyword);
          else return !item.getName().contains(keyword);
-@@ -5779,7 +6248,7 @@
+@@ -5779,7 +6252,7 @@
          Vod item = mQuickAdapter.get(position);
          Notify.show(getString(R.string.play_switch_site, item.getSiteName()));
          mQuickAdapter.remove(position);
@@ -1244,7 +1280,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          setInitAuto(false);
          applySearchArtwork(item);
          getDetail(item);
-@@ -6324,6 +6793,22 @@
+@@ -6324,6 +6797,22 @@
      }
  
      @Override
@@ -1267,7 +1303,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
      protected void onStop() {
          super.onStop();
          if (mOsd != null) mOsd.stop();
-@@ -6354,6 +6839,7 @@
+@@ -6354,6 +6843,7 @@
      }
  
      private void finishVideoPlaybackNow() {
@@ -1275,7 +1311,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          mViewModel.stopSearch();
          saveHistory(true);
          markPlaybackExiting();
-@@ -6364,6 +6850,8 @@
+@@ -6364,6 +6854,8 @@
  
      @Override
      protected void onDestroy() {
@@ -1812,7 +1848,7 @@ diff --git a/app/src/leanback/res/values/family_port.xml b/app/src/leanback/res/
 new file mode 100644
 --- /dev/null
 +++ b/app/src/leanback/res/values/family_port.xml
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,31 @@
 +<resources>
 +    <string name="family_advanced">高级设置</string>
 +    <string name="family_common">常用设置</string>
@@ -1834,6 +1870,15 @@ new file mode 100644
 +    <string name="family_login_retry">重试播放</string>
 +    <string name="family_wait_continue">继续等待</string>
 +    <string name="family_wait_switch">切换来源</string>
++    <string name="family_scan_episode_title">检测本集线路 · %1$s</string>
++    <string name="family_scan_source_title">检测其他来源</string>
++    <string name="family_scan_preparing">准备检测…</string>
++    <string name="family_scan_line_current">正在检测第 %1$d/%2$d 条线路</string>
++    <string name="family_scan_source_current">正在检测第 %1$d/%2$d 个来源</string>
++    <string name="family_scan_completed">已完成 %1$d/%2$d · 当前：%3$s</string>
++    <string name="family_scan_unnamed">未命名</string>
++    <string name="family_scan_cancel">取消</string>
++    <string name="family_scan_login_required">需登录或授权，未验证</string>
 +</resources>
 diff --git a/app/src/leanback/res/values/styles.xml b/app/src/leanback/res/values/styles.xml
 index 3a6c5f3..2f308c8 100644
@@ -2310,10 +2355,9 @@ new file mode 100644
 +}
 diff --git a/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java
 new file mode 100644
-index 0000000..87c6099
 --- /dev/null
 +++ b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,125 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import com.fongmi.android.tv.bean.DetailIdentity;
@@ -2428,6 +2472,15 @@ index 0000000..87c6099
 +        assertEquals(-1, FamilyRouteProbePolicy.initialEpisodeIndex(List.of("正片", "Episode02")));
 +        assertEquals(-1, FamilyRouteProbePolicy.initialEpisodeIndex(List.of("预告片", "HD")));
 +        assertEquals(-1, FamilyRouteProbePolicy.initialEpisodeIndex(List.of("Trailer", "Season 2 Episode 1")));
++    }
++    @Test public void onlyExplicitAuthenticationResponseIsLabeledLoginRequired() {
++        for (int code : new int[]{0, 200, 403, 404, 408, 429, 500}) {
++            assertEquals(FamilyRouteProbePolicy.ProbeResult.UNVERIFIED, FamilyRouteProbePolicy.httpFailure(code));
++        }
++        assertEquals(FamilyRouteProbePolicy.ProbeResult.LOGIN_REQUIRED, FamilyRouteProbePolicy.httpFailure(401));
++        assertEquals(FamilyRouteProbePolicy.LocalStatus.LOGIN_REQUIRED,
++                FamilyRouteProbePolicy.localResult(FamilyRouteProbePolicy.ProbeResult.LOGIN_REQUIRED));
++        assertTrue(FamilyRouteProbePolicy.canSelect(FamilyRouteProbePolicy.LocalStatus.LOGIN_REQUIRED));
 +    }
 +}
 diff --git a/chaquo/build.gradle b/chaquo/build.gradle
@@ -2631,3 +2684,198 @@ diff --git a/app/src/leanback/res/layout/adapter_config.xml b/app/src/leanback/r
          android:gravity="center"
          android:singleLine="true"
          android:textColor="@color/config_history_text"
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyScanProgress.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyScanProgress.java
+new file mode 100644
+--- /dev/null
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyScanProgress.java
+@@ -0,0 +1,77 @@
++package com.fongmi.android.tv.ui.activity;
++
++import android.animation.ObjectAnimator;
++import android.animation.ValueAnimator;
++import android.content.Context;
++import android.os.Build;
++import android.view.LayoutInflater;
++import android.view.View;
++import android.view.animation.AccelerateDecelerateInterpolator;
++import android.widget.TextView;
++
++import androidx.appcompat.app.AlertDialog;
++
++import com.fongmi.android.tv.R;
++import com.google.android.material.dialog.MaterialAlertDialogBuilder;
++import com.google.android.material.progressindicator.LinearProgressIndicator;
++
++/** Reflects work reported by the scanner. The decorative disc never drives progress. */
++final class FamilyScanProgress {
++    private final Context context;
++    private final AlertDialog dialog;
++    private final TextView current;
++    private final TextView completed;
++    private final LinearProgressIndicator bar;
++    private final View disc;
++    private final boolean cross;
++    private ObjectAnimator flip;
++    private int lastDone = -1;
++
++    FamilyScanProgress(Context context, String title, boolean cross, Runnable cancel) {
++        this.context = context;
++        this.cross = cross;
++        View panel = LayoutInflater.from(context).inflate(R.layout.dialog_family_scan_progress, null);
++        current = panel.findViewById(R.id.family_scan_current);
++        completed = panel.findViewById(R.id.family_scan_completed);
++        bar = panel.findViewById(R.id.family_scan_bar);
++        disc = panel.findViewById(R.id.family_scan_disc);
++        disc.setCameraDistance(1600 * context.getResources().getDisplayMetrics().density);
++        current.setText(R.string.family_scan_preparing);
++        dialog = new MaterialAlertDialogBuilder(context)
++                .setTitle(title).setView(panel)
++                .setNegativeButton(R.string.family_scan_cancel, (unused, which) -> cancel.run())
++                .setOnCancelListener(unused -> cancel.run())
++                .create();
++        dialog.setCanceledOnTouchOutside(false);
++    }
++
++    AlertDialog dialog() {
++        return dialog;
++    }
++
++    void update(int done, int total, String label) {
++        if (total <= 0 || done < 0 || done >= total || done < lastDone) return;
++        current.setText(context.getString(cross ? R.string.family_scan_source_current
++                : R.string.family_scan_line_current, done + 1, total));
++        completed.setText(context.getString(R.string.family_scan_completed, done, total,
++                label == null || label.isBlank() ? context.getString(R.string.family_scan_unnamed) : label));
++        bar.setMax(total);
++        bar.setProgressCompat(done, lastDone >= 0);
++        if (done != lastDone) {
++            lastDone = done;
++            if (Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled()) {
++                stopAnimation();
++                flip = ObjectAnimator.ofFloat(disc, View.ROTATION_Y, -68f, 0f);
++                flip.setDuration(230);
++                flip.setInterpolator(new AccelerateDecelerateInterpolator());
++                flip.start();
++            }
++        }
++    }
++
++    void stopAnimation() {
++        if (flip != null) flip.cancel();
++        flip = null;
++        disc.setRotationY(0f);
++    }
++}
+diff --git a/app/src/leanback/res/layout/dialog_family_scan_progress.xml b/app/src/leanback/res/layout/dialog_family_scan_progress.xml
+new file mode 100644
+--- /dev/null
++++ b/app/src/leanback/res/layout/dialog_family_scan_progress.xml
+@@ -0,0 +1,87 @@
++<?xml version="1.0" encoding="utf-8"?>
++<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:app="http://schemas.android.com/apk/res-auto"
++    android:layout_width="match_parent"
++    android:layout_height="wrap_content"
++    android:orientation="vertical"
++    android:paddingStart="24dp"
++    android:paddingTop="16dp"
++    android:paddingEnd="24dp"
++    android:paddingBottom="8dp">
++
++    <LinearLayout
++        android:layout_width="match_parent"
++        android:layout_height="wrap_content"
++        android:gravity="center_vertical"
++        android:orientation="horizontal">
++
++        <FrameLayout
++            android:layout_width="76dp"
++            android:layout_height="62dp"
++            android:importantForAccessibility="noHideDescendants">
++
++            <ImageView
++                android:layout_width="43dp"
++                android:layout_height="43dp"
++                android:layout_marginStart="2dp"
++                android:layout_marginTop="11dp"
++                android:alpha="0.32"
++                android:src="@drawable/ic_family_scan_disc" />
++
++            <ImageView
++                android:layout_width="48dp"
++                android:layout_height="48dp"
++                android:layout_marginStart="10dp"
++                android:layout_marginTop="8dp"
++                android:alpha="0.68"
++                android:src="@drawable/ic_family_scan_disc" />
++
++            <ImageView
++                android:id="@+id/family_scan_disc"
++                android:layout_width="54dp"
++                android:layout_height="54dp"
++                android:layout_marginStart="18dp"
++                android:layout_marginTop="4dp"
++                android:src="@drawable/ic_family_scan_disc" />
++        </FrameLayout>
++
++        <LinearLayout
++            android:layout_width="0dp"
++            android:layout_height="wrap_content"
++            android:layout_marginStart="14dp"
++            android:layout_weight="1"
++            android:orientation="vertical">
++
++            <TextView
++                android:id="@+id/family_scan_current"
++                android:layout_width="match_parent"
++                android:layout_height="wrap_content"
++                android:accessibilityLiveRegion="polite"
++                android:textColor="?attr/colorOnSurface"
++                android:textSize="17sp"
++                android:textStyle="bold" />
++
++            <TextView
++                android:id="@+id/family_scan_completed"
++                android:layout_width="match_parent"
++                android:layout_height="wrap_content"
++                android:layout_marginTop="4dp"
++                android:ellipsize="end"
++                android:maxLines="2"
++                android:textColor="?attr/colorOnSurfaceVariant"
++                android:textSize="13sp" />
++        </LinearLayout>
++    </LinearLayout>
++
++    <com.google.android.material.progressindicator.LinearProgressIndicator
++        android:id="@+id/family_scan_bar"
++        android:layout_width="match_parent"
++        android:layout_height="wrap_content"
++        android:layout_marginTop="12dp"
++        android:importantForAccessibility="no"
++        android:indeterminate="false"
++        app:indicatorColor="#83E1C7"
++        app:trackColor="#426565"
++        app:trackCornerRadius="3dp"
++        app:trackThickness="5dp" />
++</LinearLayout>
+diff --git a/app/src/leanback/res/drawable/ic_family_scan_disc.xml b/app/src/leanback/res/drawable/ic_family_scan_disc.xml
+new file mode 100644
+--- /dev/null
++++ b/app/src/leanback/res/drawable/ic_family_scan_disc.xml
+@@ -0,0 +1,16 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="54dp"
++    android:height="54dp"
++    android:viewportWidth="54"
++    android:viewportHeight="54">
++    <path android:fillColor="#204544" android:pathData="M27,2a25,25 0,1 1,0 50a25,25 0,1 1,0 -50z" />
++    <path android:fillColor="#00000000" android:strokeColor="#83E1C7" android:strokeWidth="1.5"
++        android:pathData="M27,2a25,25 0,1 1,0 50a25,25 0,1 1,0 -50z" />
++    <path android:fillColor="#00000000" android:strokeColor="#468780" android:strokeWidth="1"
++        android:pathData="M27,8a19,19 0,1 1,0 38a19,19 0,1 1,0 -38z M27,13a14,14 0,1 1,0 28a14,14 0,1 1,0 -28z" />
++    <path android:fillColor="#F2CF83" android:pathData="M27,20a7,7 0,1 1,0 14a7,7 0,1 1,0 -14z" />
++    <path android:fillColor="#182729" android:pathData="M27,24a3,3 0,1 1,0 6a3,3 0,1 1,0 -6z" />
++    <path android:fillColor="#00000000" android:strokeColor="#B2F3E1" android:strokeWidth="2"
++        android:strokeLineCap="round" android:pathData="M9,22 A19,19 0,0 1,23 9 M11,28 A16,16 0,0 1,14 19" />
++</vector>

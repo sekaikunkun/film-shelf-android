@@ -141,6 +141,22 @@ reference and must show timeout recovery instead of the login wait. On a
 single-line source, “检测其他线路” opens manual source search without choosing
 one. A delayed request is not enough to label a source unusable.
 
+## Live scan progress and cancellation
+
+Load `/progress.json`, play EP09 on “Current”, then open Change → Detect
+this episode. Verify the panel shows the real candidate index and completed
+count with a determinate bar. While “Slow disc” is being checked, cancel;
+no results should pop up, and the selected source and episode must remain
+unchanged. Repeat the scan to completion. “Login disc” returns explicit HTTP
+401 and is marked as needing login or authorization, “Forbidden disc” returns
+403 and remains unverified, and “Verified disc” is marked playable only after
+rendering. No row should be selected automatically. Repeat with system
+animations off and verify that the panel, counts and Cancel still work.
+For the source-count variant, load `/progress-cross.json`, then use Change →
+Find other sources → Scan once the search has finished. The count is for the
+two other providers, not the number of their route attempts. Verify the
+separate authentication and playable results without selecting either.
+
 ## Touch vs. remote regression
 
 Use the same leanback APK and a synthetic catalog. Test from a cold launch
