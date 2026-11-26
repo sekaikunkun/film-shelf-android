@@ -1,5 +1,5 @@
 diff --git a/app/build.gradle b/app/build.gradle
-index 785c9b4..72ac7bc 100644
+index 785c9b4..2e62fe2 100644
 --- a/app/build.gradle
 +++ b/app/build.gradle
 @@ -1,5 +1,6 @@
@@ -18,7 +18,16 @@ index 785c9b4..72ac7bc 100644
          minSdk libs.versions.minSdk.get().toInteger()
          targetSdk libs.versions.targetSdk.get().toInteger()
          versionCode 560
-@@ -82,6 +83,7 @@ android {
+@@ -46,6 +47,8 @@ android {
+         buildConfigField "String", "GIT_STATE", "\"${gitState}\""
+         buildConfigField "String", "MPV_NATIVE_SOURCES", "\"${mpvSourceRevisions}\""
+         buildConfigField "String", "MEDIA3_VERSION", "\"${libs.versions.media3.get()}\""
++        // Optional Home hero artwork. Never committed: set tmdbToken in local.properties or FILM_SHELF_TMDB_TOKEN.
++        buildConfigField "String", "TMDB_TOKEN", "\"${((localProps['tmdbToken'] ?: System.getenv('FILM_SHELF_TMDB_TOKEN') ?: '').toString().replaceAll('[^A-Za-z0-9._-]', ''))}\""
+         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+         javaCompileOptions {
+             annotationProcessorOptions {
+@@ -82,6 +85,7 @@ android {
      buildFeatures {
          buildConfig = true
          viewBinding = true
@@ -26,7 +35,7 @@ index 785c9b4..72ac7bc 100644
      }
  
      testOptions {
-@@ -117,6 +119,9 @@ android {
+@@ -117,6 +121,9 @@ android {
          exclude group: 'com.android.support'
          resolutionStrategy {
              force libs.okhttp
@@ -36,7 +45,7 @@ index 785c9b4..72ac7bc 100644
              eachDependency { details ->
                  if (details.requested.group == 'androidx.media3') {
                      details.useVersion(libs.versions.media3.get())
-@@ -193,6 +198,9 @@ dependencies {
+@@ -193,6 +200,9 @@ dependencies {
      implementation libs.tensorflow.lite
      implementation libs.zxing.core
      leanbackImplementation libs.leanback
@@ -588,7 +597,7 @@ new file mode 100644
 +    }
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
-index 4a19e31..806cc60 100644
+index 4a19e31..cc660de 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
 @@ -3,9 +3,11 @@ package com.fongmi.android.tv.ui.activity;
@@ -620,20 +629,31 @@ index 4a19e31..806cc60 100644
  import com.fongmi.android.tv.Product;
  import com.fongmi.android.tv.R;
  import com.fongmi.android.tv.api.config.LiveConfig;
-@@ -57,6 +63,7 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
+@@ -57,6 +63,8 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
  import com.fongmi.android.tv.ui.custom.CustomRowPresenter;
  import com.fongmi.android.tv.ui.custom.CustomSelector;
  import com.fongmi.android.tv.ui.custom.CustomTitleView;
++import com.fongmi.android.tv.ui.filmshelf.FilmShelfHero;
 +import com.fongmi.android.tv.ui.filmshelf.FilmShelfHome;
  import com.fongmi.android.tv.ui.dialog.ExitConfirmDialog;
  import com.fongmi.android.tv.ui.dialog.SiteDialog;
  import com.fongmi.android.tv.ui.presenter.FuncPresenter;
-@@ -100,6 +107,12 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -70,6 +78,7 @@ import com.fongmi.android.tv.utils.ImgUtil;
+ import com.fongmi.android.tv.utils.KeyUtil;
+ import com.fongmi.android.tv.utils.Notify;
+ import com.fongmi.android.tv.utils.PermissionUtil;
++import com.fongmi.android.tv.utils.HistoryProgressFormatter;
+ import com.fongmi.android.tv.utils.ResUtil;
+ import com.fongmi.android.tv.utils.UrlUtil;
+ import com.fongmi.android.tv.utils.Util;
+@@ -100,6 +109,14 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      private ActivityHomeBinding mBinding;
      private ArrayObjectAdapter mHistoryAdapter;
      private ArrayObjectAdapter mFuncAdapter;
 +    private ListRow legacyFunctions;
 +    private FilmShelfHome.Chrome modernChrome;
++    private FilmShelfHero.Controller modernHero;
++    private final ViewTreeObserver.OnGlobalFocusChangeListener heroFocus = (oldFocus, newFocus) -> onHomeFocus(newFocus);
 +    private boolean modernNativeHome;
 +    private boolean restoreHistoryFocus;
 +    private String historyReturnKey;
@@ -641,7 +661,7 @@ index 4a19e31..806cc60 100644
      private ArrayObjectAdapter mAdapter;
      private HistoryPresenter mPresenter;
      private SiteViewModel mViewModel;
-@@ -113,6 +126,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -113,6 +130,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      private String webDefaultChromeMode = TV_FULL;
      private boolean webToolbarVisible = true;
      private boolean loadingHomeCategory;
@@ -649,15 +669,16 @@ index 4a19e31..806cc60 100644
  
      private Site getHome() {
          return VodConfig.get().getHome();
-@@ -147,6 +161,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -147,6 +165,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          mClock = Clock.create(mBinding.clock);
          mBinding.progressLayout.showProgress();
          setRecyclerView();
 +        mBinding.recycler.getViewTreeObserver().addOnTouchModeChangeListener(homeTouchMode);
++        mBinding.recycler.getViewTreeObserver().addOnGlobalFocusChangeListener(heroFocus);
          setViewModel();
          setAdapter();
          runAfterFirstFrame(this::initAfterFirstFrame);
-@@ -156,8 +171,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -156,8 +176,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      private void initAfterFirstFrame() {
          SpiderDebug.log("startup", "home first frame cost=%sms", System.currentTimeMillis() - App.time());
          App.post(this::initConfig, 80);
@@ -670,7 +691,7 @@ index 4a19e31..806cc60 100644
      }
  
      private void runAfterFirstFrame(Runnable runnable) {
-@@ -195,7 +212,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -195,7 +217,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      }
  
      private void updateToolbarVisibility(boolean visible) {
@@ -679,7 +700,7 @@ index 4a19e31..806cc60 100644
          syncNativeContentInset();
          syncWebOverlayLayout();
      }
-@@ -229,7 +246,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -229,7 +251,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      }
  
      private boolean isTopRow(int position) {
@@ -688,7 +709,7 @@ index 4a19e31..806cc60 100644
          return history == -1 || position < history;
      }
  
-@@ -246,7 +263,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -246,7 +268,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      private void checkType(Intent intent) {
          if ("text/plain".equals(intent.getType()) || UrlUtil.path(intent.getData()).endsWith(".m3u")) {
@@ -697,7 +718,25 @@ index 4a19e31..806cc60 100644
          } else {
              VideoActivity.push(this, intent.getData().toString());
          }
-@@ -309,7 +326,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -255,7 +277,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+     @SuppressLint("RestrictedApi")
+     private void setRecyclerView() {
+         CustomSelector selector = new CustomSelector();
+-        selector.addPresenter(Integer.class, new HeaderPresenter());
++        selector.addPresenter(Integer.class, new HeaderPresenter(this::isEmptyHistoryHeading));
+         selector.addPresenter(String.class, new ProgressPresenter());
+         selector.addPresenter(Vod.class, new VodPresenter(this, Style.list()));
+         selector.addPresenter(ListRow.class, new CustomRowPresenter(16), VodPresenter.class);
+@@ -263,7 +285,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+         selector.addPresenter(ListRow.class, new CustomRowPresenter(16, FocusHighlight.ZOOM_FACTOR_SMALL, HorizontalGridView.FOCUS_SCROLL_ALIGNED), HistoryPresenter.class);
+         mBinding.recycler.setAdapter(new ItemBridgeAdapter(mAdapter = new ArrayObjectAdapter(selector)));
+         mBinding.recycler.setVerticalSpacing(ResUtil.dp2px(16));
+-        mBinding.typeRecycler.setHorizontalSpacing(ResUtil.dp2px(16));
++        mBinding.typeRecycler.setHorizontalSpacing(ResUtil.dp2px(6));
+         mBinding.typeRecycler.setRowHeight(android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+         mBinding.typeRecycler.setAdapter(mTypeAdapter = new TypeAdapter(this));
+     }
+@@ -309,7 +331,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      private void setAdapter() {
          mHistoryAdapter = new ArrayObjectAdapter(mPresenter = new HistoryPresenter(this));
@@ -707,7 +746,7 @@ index 4a19e31..806cc60 100644
          mAdapter.add(R.string.home_history);
          mAdapter.add(R.string.home_recommend);
      }
-@@ -318,12 +336,12 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -318,12 +341,12 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          List<String> items = Arrays.asList(getHome().getName(), getConfig().getName(), getString(R.string.app_name));
          Optional<String> optional = items.stream().filter(s -> !TextUtils.isEmpty(s)).findFirst();
          optional.ifPresent(s -> mBinding.title.setText(s));
@@ -721,7 +760,7 @@ index 4a19e31..806cc60 100644
          WallConfig.get().init();
      }
  
-@@ -367,16 +385,14 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -367,16 +390,14 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          SpiderDebug.log("startup", "webview prewarm end cost=%sms", System.currentTimeMillis() - App.time());
      }
  
@@ -744,7 +783,7 @@ index 4a19e31..806cc60 100644
          mBinding.title.setSelected(true);
          mBinding.title.setFocusable(true);
          if (!mBinding.title.hasFocus()) mBinding.recycler.requestFocus();
-@@ -391,6 +407,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -391,6 +412,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
              ensureWebView();
          }
          if (!forceNative && mWeb != null && mWeb.load(getHome())) {
@@ -752,7 +791,7 @@ index 4a19e31..806cc60 100644
              mBinding.typeRecycler.setVisibility(View.GONE);
              mBinding.recycler.setVisibility(View.GONE);
              mBinding.progressLayout.showContent();
-@@ -399,6 +416,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -399,16 +421,55 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          }
          if (mWeb != null) mWeb.hide();
          hideWebOverlay();
@@ -760,7 +799,11 @@ index 4a19e31..806cc60 100644
          applyTvChrome(TV_NORMAL);
          mBinding.recycler.setVisibility(View.VISIBLE);
          mResult = Result.empty();
-@@ -409,6 +427,42 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+         mHomeResult = Result.empty();
+         loadingHomeCategory = false;
+         clearRecommendRows();
++        if (modernHero != null) modernHero.show(null);
+         mAdapter.add("progress");
          mViewModel.homeContent();
      }
  
@@ -789,7 +832,8 @@ index 4a19e31..806cc60 100644
 +        if (enabled) mAdapter.remove(legacyFunctions);
 +        else if (mAdapter.indexOf(legacyFunctions) < 0) mAdapter.add(0, legacyFunctions);
 +        mBinding.modernHomeChrome.setVisibility(enabled ? View.VISIBLE : View.GONE);
-+        mBinding.nativeContent.setBackgroundColor(enabled
++        setModernHero(enabled);
++        mBinding.nativeContent.setBackgroundColor(enabled && modernHero == null
 +                ? getColor(R.color.film_shelf_home_background) : Color.TRANSPARENT);
 +        mClock.stop();
 +        if (!enabled && getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED)) mClock.start();
@@ -803,7 +847,82 @@ index 4a19e31..806cc60 100644
      private void showWebOverlay() {
          mBinding.webOverlay.setVisibility(View.VISIBLE);
          syncWebOverlayLayout();
-@@ -462,7 +516,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -441,6 +502,74 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+         Style style = result.getStyle(getHome().getStyle());
+         if (style.isList()) mAdapter.addAll(mAdapter.size(), result.getList());
+         else addGrid(result.getList(), style);
++        showFeatured(result.getList());
++    }
++
++    private void setModernHero(boolean enabled) {
++        boolean show = enabled && getResources().getBoolean(R.bool.film_shelf_modern_hero);
++        if (show && modernHero == null) {
++            modernHero = FilmShelfHero.attach(mBinding.modernHomeHero);
++            mBinding.modernHomeChrome.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
++                if (modernHero != null) modernHero.setTopInset(b);
++            });
++        }
++        mBinding.modernHomeHero.setVisibility(show ? View.VISIBLE : View.GONE);
++        mBinding.modernHeroSpace.setVisibility(show ? View.VISIBLE : View.GONE);
++        if (show) {
++            mBinding.modernHeroSpace.getLayoutParams().height = (int) (ResUtil.getScreenHeight() * 0.30f);
++            mBinding.modernHeroSpace.requestLayout();
++        } else if (modernHero != null) {
++            modernHero.show(null);
++        }
++    }
++
++    private void showFeatured(List<Vod> items) {
++        if (modernHero == null || modernHero.getKey() != null) return;
++        for (Vod item : items) {
++            if (!item.isAction() && !TextUtils.isEmpty(item.getName())) {
++                modernHero.show(heroItem(item));
++                return;
++            }
++        }
++    }
++
++    private void onHomeFocus(View focus) {
++        if (modernHero == null || !modernNativeHome || focus == null) return;
++        for (View child = focus; child != null && child != mBinding.recycler; ) {
++            if (!(child.getParent() instanceof View parent)) return;
++            if (parent instanceof RecyclerView list && list.getChildViewHolder(child) instanceof ItemBridgeAdapter.ViewHolder holder) {
++                Object item = holder.getItem();
++                if (item instanceof Vod vod && !vod.isAction()) { modernHero.show(heroItem(vod)); return; }
++                if (item instanceof History history) { modernHero.show(heroItem(history)); return; }
++            }
++            child = parent;
++        }
++    }
++
++    private FilmShelfHero.Item heroItem(Vod item) {
++        List<String> facts = new ArrayList<>();
++        facts.add(item.getTypeName());
++        facts.add(item.getArea());
++        if (item.getSiteVisible() == View.VISIBLE) facts.add(item.getSiteName());
++        String title = item.getName() == null ? "" : item.getName();
++        return new FilmShelfHero.Item("vod:" + item.getSiteKey() + ":" + item.getId(), title, item.getYear(), nonNull(facts),
++                item.getRemarks(), item.getContent(), item.getPic(), null);
++    }
++
++    private FilmShelfHero.Item heroItem(History item) {
++        List<String> facts = new ArrayList<>();
++        facts.add(item.getSiteName());
++        String watched = HistoryProgressFormatter.format(item.getPosition(), item.getDuration());
++        if (!watched.isEmpty()) facts.add(getString(R.string.history_watched_time, watched));
++        if (!item.getVodName().equals(item.getVodRemarks())) facts.add(item.getVodRemarks());
++        return new FilmShelfHero.Item("history:" + item.getKey(), item.getVodName(), null, nonNull(facts),
++                getString(R.string.film_shelf_home_continue), null, item.getVodPic(), item.getWallPic());
++    }
++
++    private static List<String> nonNull(List<String> items) {
++        List<String> result = new ArrayList<>();
++        for (String item : items) if (!TextUtils.isEmpty(item)) result.add(item);
++        return result;
+     }
+ 
+     private void clearRecommendRows() {
+@@ -462,7 +591,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      private void setFunc() {
          List<Func> items = new ArrayList<>();
@@ -811,7 +930,7 @@ index 4a19e31..806cc60 100644
          items.add(Func.create(R.string.home_search));
          items.add(Func.create(R.string.home_keep));
          items.add(Func.create(R.string.home_push));
-@@ -479,10 +532,11 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -479,10 +607,21 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          int historyIndex = getHistoryIndex();
          int recommendIndex = getRecommendIndex();
          boolean exist = recommendIndex - historyIndex == 2;
@@ -820,18 +939,31 @@ index 4a19e31..806cc60 100644
          if ((items.isEmpty() && exist) || (renew && exist)) mAdapter.removeItems(historyIndex, 1);
          if ((!items.isEmpty() && !exist) || (renew && exist)) mAdapter.add(historyIndex, new ListRow(mHistoryAdapter));
          mHistoryAdapter.setItems(items, new BaseDiffCallback<History>());
++        refreshHistoryHeading();
 +        if (restoreHistoryFocus) restoreHistoryFocus();
++    }
++
++    private boolean isEmptyHistoryHeading(Object item) {
++        return item instanceof Integer res && res == historyHeading() && (mHistoryAdapter == null || mHistoryAdapter.size() == 0);
++    }
++
++    private void refreshHistoryHeading() {
++        int heading = mAdapter.indexOf(historyHeading());
++        if (heading >= 0) mAdapter.notifyArrayItemRangeChanged(heading, 1);
      }
  
      private void setHistoryDelete(boolean delete) {
-@@ -497,8 +551,49 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -495,10 +634,52 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+         History.deleteAndSync(VodConfig.getCid());
+         mPresenter.setDelete(false);
          mHistoryAdapter.clear();
-     }
- 
-+    private int historyHeading() {
-+        return modernNativeHome ? R.string.film_shelf_home_continue : R.string.home_history;
++        refreshHistoryHeading();
 +    }
 +
++    private int historyHeading() {
++        return modernNativeHome ? R.string.film_shelf_home_continue : R.string.home_history;
+     }
+ 
      private int getHistoryIndex() {
 -        return mAdapter.indexOf(R.string.home_history) + 1;
 +        return mAdapter.indexOf(historyHeading()) + 1;
@@ -875,7 +1007,7 @@ index 4a19e31..806cc60 100644
      }
  
      private int getRecommendIndex() {
-@@ -520,9 +615,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -520,9 +701,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
              case COMMON:
                  setFunc();
                  break;
@@ -885,7 +1017,7 @@ index 4a19e31..806cc60 100644
          }
      }
  
-@@ -586,8 +678,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -586,8 +764,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      @Override
      public void onItemClick(Func item) {
@@ -895,7 +1027,7 @@ index 4a19e31..806cc60 100644
          else if (item.getResId() == R.string.home_push) PushActivity.start(this);
          else if (item.getResId() == R.string.home_search) SearchActivity.start(this);
          else if (item.getResId() == R.string.home_setting) SettingActivity.start(this);
-@@ -627,6 +718,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -627,6 +804,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      @Override
      public void onItemClick(History item) {
@@ -905,7 +1037,15 @@ index 4a19e31..806cc60 100644
          VideoActivity.start(this, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), null, item.getWallPic());
      }
  
-@@ -686,8 +780,30 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -635,6 +815,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+         mHistoryAdapter.remove(item.deleteAndSync());
+         if (mHistoryAdapter.size() > 0) return;
+         mAdapter.removeItems(getHistoryIndex(), 1);
++        refreshHistoryHeading();
+         mPresenter.setDelete(false);
+     }
+ 
+@@ -686,8 +867,30 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          VodConfig.get().setHome(item);
      }
  
@@ -936,7 +1076,7 @@ index 4a19e31..806cc60 100644
          if (KeyUtil.isMenuKey(event)) {
              showDialog();
              return true;
-@@ -705,6 +821,15 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -705,6 +908,15 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
              if (mWeb.dispatchKeyEvent(event)) return true;
              return super.dispatchKeyEvent(event);
          }
@@ -952,7 +1092,7 @@ index 4a19e31..806cc60 100644
          if (KeyUtil.isActionDown(event) & KeyUtil.isUpKey(event) && mBinding.typeRecycler.hasFocus()) return requestTitleFocus();
          if (KeyUtil.isActionDown(event) & KeyUtil.isDownKey(event) && mBinding.typeRecycler.hasFocus()) return requestContentFocus();
          if (KeyUtil.isActionDown(event) & KeyUtil.isUpKey(event) && mBinding.recycler.hasFocus() && mBinding.typeRecycler.getVisibility() == View.VISIBLE) updateToolbarVisibility(true);
-@@ -737,8 +862,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -737,8 +949,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      @Override
      protected void onResume() {
          super.onResume();
@@ -964,15 +1104,16 @@ index 4a19e31..806cc60 100644
      }
  
      @Override
-@@ -786,6 +913,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -786,6 +1000,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      @Override
      protected void onDestroy() {
 +        mBinding.recycler.getViewTreeObserver().removeOnTouchModeChangeListener(homeTouchMode);
++        mBinding.recycler.getViewTreeObserver().removeOnGlobalFocusChangeListener(heroFocus);
          if (mWeb != null) mWeb.destroy();
          DLNARendererService.stop(this);
          LiveConfig.get().clear();
-@@ -799,6 +927,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -799,6 +1015,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      @Override
      public void onWebLoading() {
@@ -981,7 +1122,7 @@ index 4a19e31..806cc60 100644
          mBinding.progressLayout.showProgress();
      }
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
-index 5a1e119..cd63fbb 100644
+index 5a1e119..2eeb4aa 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 @@ -587,6 +587,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
@@ -1496,15 +1637,28 @@ index 5a1e119..cd63fbb 100644
      }
  
      private void setEpisodeAdapter(List<Episode> items) {
-@@ -1274,6 +1703,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1274,8 +1703,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      private void setEpisodeAdapter(List<Episode> items, boolean scrollToCurrent) {
          mBinding.control.action.episodes.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
 +        mBinding.filmDetailEpisodes.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
          applyActionButtonVisibility();
          mBinding.episode.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
++        mBinding.episodeLabel.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
          boolean audioList = isMusicLike();
-@@ -1532,9 +1962,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+         if (audioList) restoreAudioEpisodeDisplayNames(items);
+         int column = audioList ? 1 : EpisodeAdapter.getColumn(items);
+@@ -1396,7 +1827,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+     private int getEpisodeWindowHeight() {
+         int column = Math.max(1, mEpisodeAdapter.getColumn());
+         int totalRows = Math.max(1, (mEpisodeAdapter.getItemCount() + column - 1) / column);
+-        int rowHeight = ResUtil.dp2px(40);
++        // Must match the episode tile height in adapter_episode.xml (minHeight 44dp).
++        int rowHeight = ResUtil.dp2px(44);
+         int spacing = mBinding.episode.getVerticalSpacing();
+         int maxRows = getEpisodeMaxRows(rowHeight, spacing);
+         int rows = Math.min(totalRows, maxRows);
+@@ -1532,9 +1964,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
              mBinding.video.setForeground(ResUtil.getDrawable(R.drawable.selector_video));
              mBinding.video.setLayoutParams(mFrameParams);
          }
@@ -1515,7 +1669,7 @@ index 5a1e119..cd63fbb 100644
          mFocus2 = null;
          hideInfo();
      }
-@@ -2471,7 +2901,23 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -2471,7 +2903,23 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void onChange() {
@@ -1540,7 +1694,7 @@ index 5a1e119..cd63fbb 100644
      }
  
      private void onFullscreen() {
-@@ -3640,11 +4086,36 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -3640,11 +4088,37 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void checkFlag(Vod item) {
@@ -1548,6 +1702,7 @@ index 5a1e119..cd63fbb 100644
 +        familyScanSelection = null;
          boolean empty = item.getFlags().isEmpty();
          mBinding.flag.setVisibility(empty ? View.GONE : View.VISIBLE);
++        mBinding.flagLabel.setVisibility(empty ? View.GONE : View.VISIBLE);
          if (empty) {
 -            startFlow();
 +            familyError = "";
@@ -1578,7 +1733,7 @@ index 5a1e119..cd63fbb 100644
              onItemClick(mHistory.getFlag());
              if (mHistory.isRevSort()) reverseEpisode(true);
          }
-@@ -3997,6 +4468,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -3997,6 +4471,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          mBinding.director.setVisibility(visible && !TextUtils.isEmpty(mBinding.director.getText()) ? View.VISIBLE : View.GONE);
          mBinding.actor.setVisibility(visible && !TextUtils.isEmpty(mBinding.actor.getText()) ? View.VISIBLE : View.GONE);
          mBinding.row2.setVisibility(value);
@@ -1586,7 +1741,7 @@ index 5a1e119..cd63fbb 100644
          mBinding.scroll.setVisibility(value);
      }
  
-@@ -5460,6 +5932,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5460,6 +5935,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      protected void onError(String msg) {
@@ -1605,7 +1760,7 @@ index 5a1e119..cd63fbb 100644
          recordPlayHealth(false, msg);
          Track.delete(player().getKey());
          mClock.setCallback(null);
-@@ -5469,7 +5953,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5469,7 +5956,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          player().reset();
          player().stop();
          showError(msg);
@@ -1613,7 +1768,7 @@ index 5a1e119..cd63fbb 100644
      }
  
      @Override
-@@ -5492,9 +5975,16 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5492,9 +5978,16 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      protected void onStateChanged(int state) {
          switch (state) {
              case Player.STATE_BUFFERING:
@@ -1630,7 +1785,7 @@ index 5a1e119..cd63fbb 100644
                  mKaraokeResultShown = false;
                  recordPlayHealth(true, "");
                  hideProgress();
-@@ -5502,6 +5992,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5502,6 +5995,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                  player().reset();
                  break;
              case Player.STATE_ENDED:
@@ -1638,7 +1793,7 @@ index 5a1e119..cd63fbb 100644
                  checkEnded(true);
                  break;
          }
-@@ -5665,14 +6156,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5665,14 +6159,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      private void checkFlag() {
          int position = isGone(mBinding.flag) ? -1 : mFlagAdapter.getPosition();
@@ -1662,7 +1817,7 @@ index 5a1e119..cd63fbb 100644
      }
  
      private void initSearch(String keyword, boolean auto) {
-@@ -5730,7 +6226,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5730,7 +6229,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
              mQuickSearchDialog.addAll(items);
              return;
          }
@@ -1671,7 +1826,7 @@ index 5a1e119..cd63fbb 100644
          dialog.dismissListener(d -> {
              if (mQuickSearchDialog != dialog) return;
              mQuickSearchDialog = null;
-@@ -5748,14 +6244,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5748,14 +6247,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      public void onItemClick(Vod item) {
@@ -1691,7 +1846,7 @@ index 5a1e119..cd63fbb 100644
          String keyword = Objects.toString(mBinding.part.getTag(), "");
          if (isAutoMode()) return !item.getName().equals(keyword);
          else return !item.getName().contains(keyword);
-@@ -5779,7 +6278,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5779,7 +6281,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          Vod item = mQuickAdapter.get(position);
          Notify.show(getString(R.string.play_switch_site, item.getSiteName()));
          mQuickAdapter.remove(position);
@@ -1700,7 +1855,7 @@ index 5a1e119..cd63fbb 100644
          setInitAuto(false);
          applySearchArtwork(item);
          getDetail(item);
-@@ -5811,6 +6310,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5811,6 +6313,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      private void setFullscreen(boolean fullscreen) {
          this.fullscreen = fullscreen;
@@ -1709,7 +1864,7 @@ index 5a1e119..cd63fbb 100644
          mBinding.control.action.fullscreen.setVisibility(fullscreen ? View.GONE : View.VISIBLE);
          mBinding.control.action.fullscreen.setText(R.string.play_fullscreen);
          applyActionButtonVisibility();
-@@ -6323,6 +6824,22 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6323,6 +6827,22 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          if (service() != null) refreshLyrics();
      }
  
@@ -1732,7 +1887,7 @@ index 5a1e119..cd63fbb 100644
      @Override
      protected void onStop() {
          super.onStop();
-@@ -6354,6 +6871,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6354,6 +6874,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void finishVideoPlaybackNow() {
@@ -1740,7 +1895,7 @@ index 5a1e119..cd63fbb 100644
          mViewModel.stopSearch();
          saveHistory(true);
          markPlaybackExiting();
-@@ -6364,6 +6882,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6364,6 +6885,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      protected void onDestroy() {
@@ -2147,7 +2302,7 @@ index 35c62cc..872bc8d 100644
 
                  <com.google.android.material.textview.MaterialTextView
 diff --git a/app/src/leanback/res/layout/activity_video.xml b/app/src/leanback/res/layout/activity_video.xml
-index 2f9fe62..7067067 100644
+index 2f9fe62..f9eb650 100644
 --- a/app/src/leanback/res/layout/activity_video.xml
 +++ b/app/src/leanback/res/layout/activity_video.xml
 @@ -23,7 +23,7 @@
@@ -2159,7 +2314,14 @@ index 2f9fe62..7067067 100644
          android:nextFocusUp="@id/video"
          android:nextFocusDown="@id/flag">
  
-@@ -655,6 +655,53 @@
+@@ -649,12 +649,69 @@
+         android:layout_marginTop="6dp"
+         android:layout_marginEnd="24dp"
+         android:ellipsize="end"
+-        android:maxLines="2"
++        android:maxLines="1"
+         android:nextFocusDown="@id/content"
+         android:textColor="@color/white"
          android:textSize="16sp"
          tools:text="演員：FongMi" />
  
@@ -2179,12 +2341,22 @@ index 2f9fe62..7067067 100644
 +            style="@style/FilmFlow.Action"
 +            android:focusable="true"
 +            android:focusableInTouchMode="false"
-+            android:layout_width="0dp"
++            android:layout_width="wrap_content"
 +            android:layout_height="wrap_content"
-+            android:layout_weight="1"
-+            android:layout_marginEnd="8dp"
++            android:layout_marginEnd="10dp"
++            android:background="@drawable/film_primary_background"
++            app:icon="@drawable/film_ic_play"
++            app:iconGravity="textStart"
++            app:iconPadding="8dp"
++            app:iconSize="20dp"
++            app:iconTint="@color/film_shelf_home_background"
++            android:fontFamily="sans-serif-medium"
++            android:maxWidth="360dp"
++            android:minWidth="168dp"
++            android:minHeight="48dp"
 +            android:nextFocusDown="@id/content"
-+            android:text="@string/film_detail_play" />
++            android:text="@string/film_detail_play"
++            android:textColor="@color/film_shelf_home_background" />
 +
 +        <Button
 +            android:id="@+id/filmDetailEpisodes"
@@ -2213,7 +2385,7 @@ index 2f9fe62..7067067 100644
      <androidx.appcompat.widget.LinearLayoutCompat
          android:id="@+id/row2"
          android:layout_width="wrap_content"
-@@ -671,7 +718,7 @@
+@@ -671,7 +728,7 @@
              android:background="@drawable/selector_video_item"
              android:drawablePadding="6dp"
              android:focusable="true"
@@ -2222,7 +2394,7 @@ index 2f9fe62..7067067 100644
              android:gravity="center"
              android:nextFocusUp="@id/actor"
              android:nextFocusDown="@id/flag"
-@@ -689,7 +736,7 @@
+@@ -689,7 +746,7 @@
              android:background="@drawable/selector_video_item"
              android:drawablePadding="6dp"
              android:focusable="true"
@@ -2231,7 +2403,7 @@ index 2f9fe62..7067067 100644
              android:gravity="center"
              android:nextFocusUp="@id/actor"
              android:nextFocusDown="@id/flag"
-@@ -707,7 +754,7 @@
+@@ -707,7 +764,7 @@
              android:background="@drawable/selector_video_item"
              android:drawablePadding="6dp"
              android:focusable="true"
@@ -2240,7 +2412,7 @@ index 2f9fe62..7067067 100644
              android:gravity="center"
              android:nextFocusUp="@id/actor"
              android:nextFocusDown="@id/flag"
-@@ -725,7 +772,7 @@
+@@ -725,7 +782,7 @@
              android:background="@drawable/selector_video_item"
              android:drawablePadding="6dp"
              android:focusable="true"
@@ -2249,7 +2421,7 @@ index 2f9fe62..7067067 100644
              android:gravity="center"
              android:nextFocusUp="@id/actor"
              android:nextFocusDown="@id/flag"
-@@ -735,23 +782,6 @@
+@@ -735,23 +792,6 @@
              android:textSize="16sp"
              app:drawableStartCompat="@drawable/ic_detail_keep_off" />
  
@@ -2273,12 +2445,79 @@ index 2f9fe62..7067067 100644
  
      </androidx.appcompat.widget.LinearLayoutCompat>
  
+@@ -766,8 +806,21 @@
+         android:orientation="vertical"
+         android:paddingBottom="8dp">
+ 
++        <com.google.android.material.textview.MaterialTextView
++            android:id="@+id/flagLabel"
++            android:layout_width="wrap_content"
++            android:layout_height="wrap_content"
++            android:layout_marginStart="26dp"
++            android:layout_marginBottom="4dp"
++            android:fontFamily="sans-serif-medium"
++            android:letterSpacing="0.06"
++            android:text="@string/film_detail_lines"
++            android:textColor="@color/film_flow_muted"
++            android:textSize="13sp"
++            android:visibility="gone" />
+         <androidx.leanback.widget.HorizontalGridView
+             android:id="@+id/flag"
++            android:overScrollMode="never"
+             android:layout_width="match_parent"
+             android:layout_height="wrap_content"
+             android:layout_marginBottom="12dp"
+@@ -780,6 +833,7 @@
+ 
+         <androidx.leanback.widget.HorizontalGridView
+             android:id="@+id/quality"
++            android:overScrollMode="never"
+             android:layout_width="match_parent"
+             android:layout_height="wrap_content"
+             android:layout_marginBottom="12dp"
+@@ -790,8 +844,21 @@
+             android:visibility="gone"
+             tools:visibility="visible" />
+ 
++        <com.google.android.material.textview.MaterialTextView
++            android:id="@+id/episodeLabel"
++            android:layout_width="wrap_content"
++            android:layout_height="wrap_content"
++            android:layout_marginStart="26dp"
++            android:layout_marginBottom="4dp"
++            android:fontFamily="sans-serif-medium"
++            android:letterSpacing="0.06"
++            android:text="@string/film_detail_episodes"
++            android:textColor="@color/film_flow_muted"
++            android:textSize="13sp"
++            android:visibility="gone" />
+         <androidx.leanback.widget.HorizontalGridView
+             android:id="@+id/array"
++            android:overScrollMode="never"
+             android:layout_width="match_parent"
+             android:layout_height="wrap_content"
+             android:layout_marginBottom="12dp"
+@@ -801,8 +868,9 @@
+             android:paddingEnd="24dp"
+             android:visibility="gone" />
+ 
+-        <androidx.leanback.widget.VerticalGridView
++        <com.fongmi.android.tv.ui.custom.VerticalOnlyGridView
+             android:id="@+id/episode"
++            android:overScrollMode="never"
+             android:layout_width="match_parent"
+             android:layout_height="0dp"
+             android:layout_weight="1"
 diff --git a/app/src/leanback/res/layout/adapter_episode.xml b/app/src/leanback/res/layout/adapter_episode.xml
-index 73eb644..ee4104e 100644
+index 73eb644..ab0197b 100644
 --- a/app/src/leanback/res/layout/adapter_episode.xml
 +++ b/app/src/leanback/res/layout/adapter_episode.xml
-@@ -7,7 +7,7 @@
-     android:background="@drawable/selector_video_item"
+@@ -4,14 +4,16 @@
+     android:id="@+id/text"
+     android:layout_width="wrap_content"
+     android:layout_height="wrap_content"
+-    android:background="@drawable/selector_video_item"
++    android:background="@drawable/film_episode_background"
      android:ellipsize="marquee"
      android:focusable="true"
 -    android:focusableInTouchMode="true"
@@ -2286,19 +2525,35 @@ index 73eb644..ee4104e 100644
      android:gravity="center"
      android:nextFocusUp="@id/array"
      android:nextFocusDown="@id/part"
+     android:singleLine="true"
+-    android:textColor="@color/text"
++    android:textColor="@color/film_episode_text"
+     android:textSize="16sp"
++    android:fontFamily="sans-serif-medium"
++    android:minHeight="44dp"
+     tools:text="20" />
 diff --git a/app/src/leanback/res/layout/adapter_flag.xml b/app/src/leanback/res/layout/adapter_flag.xml
-index 59f47ed..242ed4d 100644
+index 59f47ed..405f12b 100644
 --- a/app/src/leanback/res/layout/adapter_flag.xml
 +++ b/app/src/leanback/res/layout/adapter_flag.xml
-@@ -6,7 +6,7 @@
+@@ -4,11 +4,13 @@
+     android:id="@+id/text"
+     android:layout_width="wrap_content"
      android:layout_height="wrap_content"
-     android:background="@drawable/selector_video_item"
+-    android:background="@drawable/selector_video_item"
++    android:background="@drawable/film_flag_background"
      android:focusable="true"
 -    android:focusableInTouchMode="true"
 +    android:focusableInTouchMode="false"
      android:gravity="center"
      android:nextFocusDown="@id/episode"
-     android:textColor="@color/text"
+-    android:textColor="@color/text"
+-    android:textSize="16sp"
++    android:textColor="@color/film_flag_text"
++    android:textSize="15sp"
++    android:fontFamily="sans-serif-medium"
++    android:minHeight="40dp"
+     tools:text="泥巴" />
 diff --git a/app/src/leanback/res/layout/adapter_func.xml b/app/src/leanback/res/layout/adapter_func.xml
 index 454ed9c..b4e0be8 100644
 --- a/app/src/leanback/res/layout/adapter_func.xml
@@ -2339,32 +2594,201 @@ index 06e1d1e..f699a94 100644
      android:orientation="horizontal">
 
 diff --git a/app/src/leanback/res/layout/adapter_type.xml b/app/src/leanback/res/layout/adapter_type.xml
-index 6c7281d..725d7ad 100644
+index 6c7281d..47bb2d2 100644
 --- a/app/src/leanback/res/layout/adapter_type.xml
 +++ b/app/src/leanback/res/layout/adapter_type.xml
-@@ -6,7 +6,7 @@
+@@ -4,9 +4,17 @@
+     android:id="@+id/text"
+     android:layout_width="wrap_content"
      android:layout_height="wrap_content"
-     android:background="@drawable/selector_item_round"
+-    android:background="@drawable/selector_item_round"
++    android:background="@drawable/film_tab_background"
++    android:drawableTint="@color/film_tab_text"
      android:focusable="true"
 -    android:focusableInTouchMode="true"
-+    android:focusableInTouchMode="false"
-     android:textColor="@color/text"
-     android:textSize="16sp"
-     tools:text="電影" />
+-    android:textColor="@color/text"
+-    android:textSize="16sp"
+-    tools:text="電影" />
 \ No newline at end of file
++    android:focusableInTouchMode="false"
++    android:fontFamily="sans-serif-medium"
++    android:gravity="center"
++    android:minHeight="40dp"
++    android:paddingStart="16dp"
++    android:paddingTop="6dp"
++    android:paddingEnd="16dp"
++    android:paddingBottom="6dp"
++    android:textColor="@color/film_tab_text"
++    android:textSize="15sp"
++    tools:text="電影" />
 diff --git a/app/src/leanback/res/layout/adapter_vod.xml b/app/src/leanback/res/layout/adapter_vod.xml
-index 35ccbea..c7e0d72 100644
+index 35ccbea..bf501a2 100644
 --- a/app/src/leanback/res/layout/adapter_vod.xml
 +++ b/app/src/leanback/res/layout/adapter_vod.xml
-@@ -5,7 +5,7 @@
+@@ -5,104 +5,113 @@
      android:layout_width="wrap_content"
      android:layout_height="wrap_content"
      android:focusable="true"
 -    android:focusableInTouchMode="true"
-+    android:focusableInTouchMode="false"
-     android:foreground="@drawable/selector_vod">
-
+-    android:foreground="@drawable/selector_vod">
++    android:focusableInTouchMode="false">
+ 
      <com.google.android.material.imageview.ShapeableImageView
+         android:id="@+id/image"
+         android:layout_width="match_parent"
+         android:layout_height="80dp"
+-        android:background="@color/black_20"
+-        app:shapeAppearanceOverlay="@style/Vod.Grid" />
++        android:background="@drawable/film_card_poster_bg"
++        android:duplicateParentState="true"
++        android:padding="1dp"
++        app:shapeAppearanceOverlay="@style/FilmCard.Poster"
++        app:strokeColor="@color/film_card_stroke"
++        app:strokeWidth="2dp" />
+ 
+-    <com.google.android.material.imageview.ShapeableImageView
+-        android:id="@+id/delete"
++    <com.google.android.material.textview.MaterialTextView
++        android:id="@+id/site"
++        style="@style/FilmCard.Chip"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+         android:layout_alignStart="@+id/image"
+         android:layout_alignTop="@+id/image"
+-        android:layout_alignEnd="@+id/image"
+-        android:layout_alignBottom="@+id/name"
+-        android:background="@color/black_50"
+-        android:scaleType="center"
+-        android:src="@drawable/ic_vod_delete"
++        android:layout_margin="8dp"
++        android:maxEms="6"
+         android:visibility="gone"
+-        app:shapeAppearanceOverlay="@style/Vod.Grid.Large"
++        tools:text="泥巴"
+         tools:visibility="visible" />
+ 
+     <com.google.android.material.textview.MaterialTextView
+         android:id="@+id/year"
++        style="@style/FilmCard.Chip"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:background="@drawable/shape_vod_year"
+-        android:singleLine="true"
+-        android:textColor="@color/white"
+-        android:textSize="14sp"
+-        android:visibility="gone"
+-        tools:text="2022"
+-        tools:visibility="visible" />
+-
+-    <com.google.android.material.textview.MaterialTextView
+-        android:id="@+id/site"
+-        android:layout_width="wrap_content"
+-        android:layout_height="wrap_content"
+-        android:background="@drawable/shape_vod_site"
+-        android:singleLine="true"
+-        android:textColor="@color/white"
+-        android:textSize="14sp"
++        android:layout_alignTop="@+id/image"
++        android:layout_alignEnd="@+id/image"
++        android:layout_margin="8dp"
+         android:visibility="gone"
+-        tools:text="泥巴"
+-        tools:visibility="visible" />
++        tools:text="2022" />
+ 
+     <LinearLayout
+-        android:layout_width="match_parent"
++        android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:layout_above="@+id/name"
+         android:layout_alignStart="@+id/image"
+-        android:layout_alignEnd="@+id/image"
++        android:layout_alignBottom="@+id/image"
++        android:layout_marginStart="8dp"
++        android:layout_marginBottom="14dp"
+         android:orientation="vertical">
+ 
+         <com.google.android.material.textview.MaterialTextView
+             android:id="@+id/historyProgress"
++            style="@style/FilmCard.Chip"
+             android:layout_width="wrap_content"
+             android:layout_height="wrap_content"
+-            android:layout_marginBottom="2dp"
+-            android:background="@drawable/shape_vod_remark"
++            android:layout_marginBottom="4dp"
+             android:ellipsize="start"
+-            android:singleLine="true"
+-            android:textColor="@color/white"
+-            android:textSize="14sp"
+             android:visibility="gone"
+             tools:text="已看 12:34"
+             tools:visibility="visible" />
+ 
+         <com.google.android.material.textview.MaterialTextView
+             android:id="@+id/remark"
++            style="@style/FilmCard.Chip"
+             android:layout_width="wrap_content"
+             android:layout_height="wrap_content"
+-            android:background="@drawable/shape_vod_remark"
+-            android:ellipsize="marquee"
+-            android:singleLine="true"
+-            android:textColor="@color/white"
+-            android:textSize="14sp"
++            android:maxEms="10"
+             tools:text="第3集" />
+ 
+     </LinearLayout>
+ 
++    <ProgressBar
++        android:id="@+id/historyBar"
++        style="?android:attr/progressBarStyleHorizontal"
++        android:layout_width="match_parent"
++        android:layout_height="3dp"
++        android:layout_alignStart="@+id/image"
++        android:layout_alignEnd="@+id/image"
++        android:layout_alignBottom="@+id/image"
++        android:layout_marginStart="10dp"
++        android:layout_marginEnd="10dp"
++        android:layout_marginBottom="7dp"
++        android:max="1000"
++        android:progressDrawable="@drawable/film_card_progress"
++        android:visibility="gone"
++        tools:progress="420"
++        tools:visibility="visible" />
++
++    <com.google.android.material.imageview.ShapeableImageView
++        android:id="@+id/delete"
++        android:layout_width="wrap_content"
++        android:layout_height="wrap_content"
++        android:layout_alignStart="@+id/image"
++        android:layout_alignTop="@+id/image"
++        android:layout_alignEnd="@+id/image"
++        android:layout_alignBottom="@+id/image"
++        android:background="#99101416"
++        android:scaleType="center"
++        android:src="@drawable/ic_vod_delete"
++        android:visibility="gone"
++        app:shapeAppearanceOverlay="@style/FilmCard.Poster"
++        tools:visibility="visible" />
++
+     <com.google.android.material.textview.MaterialTextView
+         android:id="@+id/name"
++        style="@style/FilmCard.Title"
+         android:layout_width="match_parent"
+         android:layout_height="wrap_content"
+         android:layout_below="@+id/image"
+         android:layout_alignStart="@+id/image"
+         android:layout_alignEnd="@+id/image"
+-        android:background="@drawable/shape_vod_name"
+-        android:ellipsize="marquee"
+-        android:gravity="center"
+-        android:padding="6dp"
+-        android:singleLine="true"
+-        android:textColor="@color/white"
+-        android:textSize="16sp"
+         tools:text="蜘蛛人" />
+ 
+ </RelativeLayout>
 diff --git a/app/src/leanback/res/layout/adapter_vod_list.xml b/app/src/leanback/res/layout/adapter_vod_list.xml
 index 608cca4..981ba95 100644
 --- a/app/src/leanback/res/layout/adapter_vod_list.xml
@@ -2379,18 +2803,106 @@ index 608cca4..981ba95 100644
 
      <androidx.appcompat.widget.LinearLayoutCompat
 diff --git a/app/src/leanback/res/layout/adapter_vod_rect.xml b/app/src/leanback/res/layout/adapter_vod_rect.xml
-index 3847c13..67449b1 100644
+index 3847c13..c6a6ba5 100644
 --- a/app/src/leanback/res/layout/adapter_vod_rect.xml
 +++ b/app/src/leanback/res/layout/adapter_vod_rect.xml
-@@ -5,7 +5,7 @@
+@@ -5,66 +5,63 @@
      android:layout_width="wrap_content"
      android:layout_height="wrap_content"
      android:focusable="true"
 -    android:focusableInTouchMode="true"
-+    android:focusableInTouchMode="false"
-     android:foreground="@drawable/selector_vod">
-
+-    android:foreground="@drawable/selector_vod">
++    android:focusableInTouchMode="false">
+ 
      <com.google.android.material.imageview.ShapeableImageView
+         android:id="@+id/image"
+         android:layout_width="match_parent"
+         android:layout_height="80dp"
+-        android:background="@color/black_20"
+-        app:shapeAppearanceOverlay="@style/Vod.Grid" />
++        android:background="@drawable/film_card_poster_bg"
++        android:duplicateParentState="true"
++        android:padding="1dp"
++        app:shapeAppearanceOverlay="@style/FilmCard.Poster"
++        app:strokeColor="@color/film_card_stroke"
++        app:strokeWidth="2dp" />
+ 
+     <com.google.android.material.textview.MaterialTextView
+-        android:id="@+id/year"
++        android:id="@+id/site"
++        style="@style/FilmCard.Chip"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:background="@drawable/shape_vod_year"
+-        android:singleLine="true"
+-        android:textColor="@color/white"
+-        android:textSize="14sp"
++        android:layout_alignStart="@+id/image"
++        android:layout_alignTop="@+id/image"
++        android:layout_margin="8dp"
++        android:maxEms="6"
+         android:visibility="gone"
+-        tools:text="2022"
++        tools:text="泥巴"
+         tools:visibility="visible" />
+ 
+     <com.google.android.material.textview.MaterialTextView
+-        android:id="@+id/site"
++        android:id="@+id/year"
++        style="@style/FilmCard.Chip"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:background="@drawable/shape_vod_site"
+-        android:singleLine="true"
+-        android:textColor="@color/white"
+-        android:textSize="14sp"
++        android:layout_alignTop="@+id/image"
++        android:layout_alignEnd="@+id/image"
++        android:layout_margin="8dp"
+         android:visibility="gone"
+-        tools:text="泥巴"
++        tools:text="2022"
+         tools:visibility="visible" />
+ 
+     <com.google.android.material.textview.MaterialTextView
+         android:id="@+id/remark"
++        style="@style/FilmCard.Chip"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:layout_above="@+id/name"
+-        android:background="@drawable/shape_vod_remark"
+-        android:ellipsize="marquee"
+-        android:singleLine="true"
+-        android:textColor="@color/white"
+-        android:textSize="14sp"
+-        tools:text="1080p" />
++        android:layout_alignStart="@+id/image"
++        android:layout_alignBottom="@+id/image"
++        android:layout_margin="8dp"
++        android:maxEms="10"
++        tools:text="更新至12集" />
+ 
+     <com.google.android.material.textview.MaterialTextView
+         android:id="@+id/name"
+-        android:layout_width="wrap_content"
++        style="@style/FilmCard.Title"
++        android:layout_width="match_parent"
+         android:layout_height="wrap_content"
+         android:layout_below="@+id/image"
+         android:layout_alignStart="@+id/image"
+         android:layout_alignEnd="@+id/image"
+-        android:background="@drawable/shape_vod_name"
+-        android:ellipsize="marquee"
+-        android:gravity="center"
+-        android:padding="6dp"
+-        android:singleLine="true"
+-        android:textColor="@color/white"
+-        android:textSize="16sp"
+         tools:text="蜘蛛人" />
+ 
+-</RelativeLayout>
+\ No newline at end of file
++</RelativeLayout>
 diff --git a/app/src/leanback/res/layout/dialog_config.xml b/app/src/leanback/res/layout/dialog_config.xml
 index 3460d2a..ce0a352 100644
 --- a/app/src/leanback/res/layout/dialog_config.xml
@@ -2477,10 +2989,35 @@ new file mode 100644
 +    <string name="family_scan_login_required">需登录或授权，未验证</string>
 +</resources>
 diff --git a/app/src/leanback/res/values/styles.xml b/app/src/leanback/res/values/styles.xml
-index 3a6c5f3..2f308c8 100644
+index 3a6c5f3..e065eca 100644
 --- a/app/src/leanback/res/values/styles.xml
 +++ b/app/src/leanback/res/values/styles.xml
-@@ -39,7 +39,7 @@
+@@ -2,6 +2,24 @@
+ 
+     <style name="Theme.Base" parent="Theme.Material3.Dark.NoActionBar">
+         <item name="colorPrimary">@color/white</item>
++        <item name="android:colorBackground">@color/film_shelf_home_background</item>
++        <item name="colorSurface">#171D20</item>
++        <item name="colorSurfaceVariant">#263033</item>
++        <item name="colorSurfaceContainerLowest">#101416</item>
++        <item name="colorSurfaceContainerLow">#151B1E</item>
++        <item name="colorSurfaceContainer">#1A2124</item>
++        <item name="colorSurfaceContainerHigh">#1F272A</item>
++        <item name="colorSurfaceContainerHighest">#252E31</item>
++        <item name="colorOnSurface">@color/film_flow_ink</item>
++        <item name="colorOnSurfaceVariant">@color/film_flow_muted</item>
++        <item name="colorPrimaryContainer">#2A3437</item>
++        <item name="colorOnPrimaryContainer">@color/film_flow_ink</item>
++        <item name="colorSecondary">@color/film_flow_accent</item>
++        <item name="colorSecondaryContainer">#24403B</item>
++        <item name="colorOnSecondaryContainer">@color/film_flow_ink</item>
++        <item name="colorTertiary">@color/film_flow_accent</item>
++        <item name="colorOutline">#4A5558</item>
++        <item name="colorOutlineVariant">#2E383B</item>
+         <item name="android:windowBackground">@color/black</item>
+         <item name="android:windowFullscreen">true</item>
+         <item name="android:windowTranslucentStatus">true</item>
+@@ -39,7 +57,7 @@
          <item name="android:layout_height">wrap_content</item>
          <item name="android:background">@drawable/selector_chip</item>
          <item name="android:focusable">true</item>
@@ -3212,17 +3749,90 @@ diff --git a/app/src/leanback/res/layout/adapter_keyboard_icon.xml b/app/src/lea
      tools:src="@drawable/ic_keyboard_back" />
 \ No newline at end of file
 diff --git a/app/src/leanback/res/layout/adapter_search.xml b/app/src/leanback/res/layout/adapter_search.xml
+index 4c231f0..3755acd 100644
 --- a/app/src/leanback/res/layout/adapter_search.xml
 +++ b/app/src/leanback/res/layout/adapter_search.xml
-@@ -3,7 +3,7 @@
+@@ -1,58 +1,54 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:app="http://schemas.android.com/apk/res-auto"
      android:layout_width="match_parent"
      android:layout_height="wrap_content"
      android:focusable="true"
 -    android:focusableInTouchMode="true"
+-    android:foreground="@drawable/selector_vod">
 +    android:focusableInTouchMode="false"
-     android:foreground="@drawable/selector_vod">
-
-     <androidx.appcompat.widget.AppCompatImageView
++    android:paddingStart="6dp"
++    android:paddingEnd="6dp"
++    android:paddingBottom="10dp">
+ 
+-    <androidx.appcompat.widget.AppCompatImageView
++    <com.google.android.material.imageview.ShapeableImageView
+         android:id="@+id/image"
+         android:layout_width="match_parent"
+         android:layout_height="0dp"
+-        android:background="@color/black_20"
+-        android:scaleType="centerCrop" />
++        android:background="@drawable/film_card_poster_bg"
++        android:duplicateParentState="true"
++        android:padding="1dp"
++        android:scaleType="centerCrop"
++        app:shapeAppearanceOverlay="@style/FilmCard.Poster"
++        app:strokeColor="@color/film_card_stroke"
++        app:strokeWidth="2dp" />
+ 
+     <TextView
+         android:id="@+id/site"
++        style="@style/FilmCard.Chip"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+         android:layout_alignStart="@+id/image"
+         android:layout_alignTop="@+id/image"
+-        android:background="@drawable/shape_vod_site"
+-        android:ellipsize="end"
+-        android:maxWidth="96dp"
+-        android:singleLine="true"
+-        android:textColor="@color/white"
+-        android:textSize="13sp"
++        android:layout_margin="8dp"
++        android:maxWidth="110dp"
+         android:visibility="gone" />
+ 
+     <TextView
+         android:id="@+id/remark"
++        style="@style/FilmCard.Chip"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+-        android:layout_above="@+id/name"
+         android:layout_alignStart="@+id/image"
+-        android:layout_alignEnd="@+id/image"
+-        android:background="@drawable/shape_vod_remark"
+-        android:ellipsize="end"
+-        android:singleLine="true"
+-        android:textColor="@color/white"
+-        android:textSize="14sp" />
++        android:layout_alignBottom="@+id/image"
++        android:layout_margin="8dp"
++        android:maxWidth="140dp" />
+ 
+     <TextView
+         android:id="@+id/name"
++        style="@style/FilmCard.Title"
+         android:layout_width="match_parent"
+         android:layout_height="wrap_content"
+         android:layout_below="@+id/image"
+         android:layout_alignStart="@+id/image"
+-        android:layout_alignEnd="@+id/image"
+-        android:background="@drawable/shape_vod_name"
+-        android:ellipsize="end"
+-        android:gravity="center"
+-        android:padding="6dp"
+-        android:singleLine="true"
+-        android:textColor="@color/white"
+-        android:textSize="16sp" />
++        android:layout_alignEnd="@+id/image" />
+ 
+ </RelativeLayout>
 diff --git a/app/src/leanback/res/layout/adapter_search_word.xml b/app/src/leanback/res/layout/adapter_search_word.xml
 --- a/app/src/leanback/res/layout/adapter_search_word.xml
 +++ b/app/src/leanback/res/layout/adapter_search_word.xml
@@ -3558,20 +4168,19 @@ diff --git a/app/src/leanback/res/layout/adapter_filter.xml b/app/src/leanback/r
      tools:text="全部" />
 \ No newline at end of file
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/HistoryPresenter.java b/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/HistoryPresenter.java
-index 2976187..32a1516 100644
+index 2976187..c9a9d4a 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/HistoryPresenter.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/HistoryPresenter.java
-@@ -1,6 +1,9 @@
+@@ -1,6 +1,8 @@
  package com.fongmi.android.tv.ui.presenter;
  
 +import android.graphics.Color;
-+import android.graphics.drawable.GradientDrawable;
  import android.view.LayoutInflater;
 +import android.widget.TextView;
  import android.view.View;
  import android.view.ViewGroup;
  
-@@ -19,11 +22,17 @@ import com.fongmi.android.tv.utils.ResUtil;
+@@ -19,11 +21,17 @@ import com.fongmi.android.tv.utils.ResUtil;
  public class HistoryPresenter extends Presenter {
  
      private final OnClickListener listener;
@@ -3589,7 +4198,7 @@ index 2976187..32a1516 100644
          setLayoutSize();
      }
  
-@@ -40,7 +49,7 @@ public class HistoryPresenter extends Presenter {
+@@ -40,7 +48,7 @@ public class HistoryPresenter extends Presenter {
          int space = ResUtil.dp2px(48) + ResUtil.dp2px(16 * (Product.getColumn() - 1));
          int base = ResUtil.getScreenWidth() - space;
          width = base / Product.getColumn();
@@ -3598,39 +4207,23 @@ index 2976187..32a1516 100644
      }
  
      public boolean isDelete() {
-@@ -65,9 +74,26 @@ public class HistoryPresenter extends Presenter {
-         ViewHolder holder = new ViewHolder(AdapterVodBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
-         holder.binding.getRoot().getLayoutParams().width = width;
-         holder.binding.image.getLayoutParams().height = height;
-+        if (compact) {
-+            styleBadge(holder.binding.site, 0xD9171F22);
-+            styleBadge(holder.binding.historyProgress, 0xE8233737);
-+            styleBadge(holder.binding.remark, 0xD9171F22);
-+            holder.binding.name.setTextColor(0xFFF5F2EC);
-+            holder.binding.name.setTextSize(15);
-+        }
-         return holder;
+@@ -83,6 +91,10 @@ public class HistoryPresenter extends Presenter {
+         String watchedTime = HistoryProgressFormatter.format(item.getPosition(), item.getDuration());
+         holder.binding.historyProgress.setText(watchedTime.isEmpty() ? "" : holder.view.getContext().getString(R.string.history_watched_time, watchedTime));
+         holder.binding.historyProgress.setVisibility(delete || watchedTime.isEmpty() ? View.GONE : View.VISIBLE);
++        long duration = item.getDuration(), position = item.getPosition();
++        boolean progress = !delete && duration > 0 && position > 0;
++        holder.binding.historyBar.setVisibility(progress ? View.VISIBLE : View.GONE);
++        if (progress) holder.binding.historyBar.setProgress((int) Math.min(1000, Math.max(20, position * 1000 / duration)));
+         ImgUtil.load(item.getVodName(), item.getVodPic(), holder.binding.image);
      }
  
-+    private void styleBadge(TextView view, int color) {
-+        GradientDrawable pill = new GradientDrawable();
-+        pill.setCornerRadius(ResUtil.dp2px(6));
-+        pill.setColor(color);
-+        view.setBackground(pill);
-+        view.setTextColor(Color.WHITE);
-+        view.setTextSize(11);
-+        view.setPadding(ResUtil.dp2px(5), ResUtil.dp2px(1), ResUtil.dp2px(5), ResUtil.dp2px(1));
-+    }
-+
-     @Override
-     public void onBindViewHolder(@NonNull Presenter.ViewHolder viewHolder, Object object) {
-         History item = (History) object;
 diff --git a/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfHome.kt b/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfHome.kt
 new file mode 100644
-index 0000000..64538a3
+index 0000000..720f8a9
 --- /dev/null
 +++ b/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfHome.kt
-@@ -0,0 +1,279 @@
+@@ -0,0 +1,282 @@
 +package com.fongmi.android.tv.ui.filmshelf
 +
 +import android.view.ViewGroup
@@ -3727,6 +4320,8 @@ index 0000000..64538a3
 +private val OnAccent: Color @Composable get() = colorResource(R.color.film_flow_on_accent)
 +private val Panel: Color @Composable get() = colorResource(R.color.film_flow_panel)
 +private val FocusPanel = Color(0xFF35494C)
++private val Field = Color(0x14FFFFFF)
++private val OnFocus = Color(0xFF111619)
 +
 +@Composable
 +internal fun FilmShelfTheme(content: @Composable () -> Unit) {
@@ -3788,15 +4383,15 @@ index 0000000..64538a3
 +        Column(Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) {
 +            Text(
 +                stringResource(R.string.film_shelf_home_brand),
-+                style = MaterialTheme.typography.titleMedium,
-+                fontWeight = FontWeight.SemiBold,
++                style = MaterialTheme.typography.titleLarge,
++                fontWeight = FontWeight.Bold,
 +                maxLines = 1,
 +                overflow = TextOverflow.Ellipsis,
 +            )
 +            Text(
 +                source.ifBlank { stringResource(R.string.film_shelf_home_sources) },
 +                style = MaterialTheme.typography.labelSmall,
-+                color = Muted,
++                color = androidx.tv.material3.LocalContentColor.current.copy(alpha = 0.62f),
 +                maxLines = 1,
 +                overflow = TextOverflow.Ellipsis,
 +            )
@@ -3817,7 +4412,7 @@ index 0000000..64538a3
 +            horizontalArrangement = Arrangement.spacedBy(10.dp),
 +            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
 +        ) {
-+            val iconInk = OnAccent
++            val iconInk = androidx.tv.material3.LocalContentColor.current.copy(alpha = 0.8f)
 +            Canvas(Modifier.size(18.dp)) {
 +                val radius = size.minDimension * 0.3f
 +                val center = Offset(size.width * 0.43f, size.height * 0.43f)
@@ -3828,8 +4423,8 @@ index 0000000..64538a3
 +            Text(
 +                stringResource(R.string.film_shelf_home_search),
 +                style = MaterialTheme.typography.labelLarge,
-+                fontWeight = FontWeight.SemiBold,
-+                color = OnAccent,
++                fontWeight = FontWeight.Normal,
++                color = androidx.tv.material3.LocalContentColor.current.copy(alpha = 0.8f),
 +                maxLines = 1,
 +                overflow = TextOverflow.Ellipsis,
 +            )
@@ -3849,8 +4444,8 @@ index 0000000..64538a3
 +    HomeAction(onClick = action) {
 +        Text(
 +            stringResource(text),
-+            modifier = Modifier.padding(horizontal = 11.dp),
-+            style = MaterialTheme.typography.labelMedium,
++            modifier = Modifier.padding(horizontal = 14.dp),
++            style = MaterialTheme.typography.labelLarge,
 +            maxLines = 1,
 +        )
 +    }
@@ -3893,16 +4488,17 @@ index 0000000..64538a3
 +        onLongClick = onLongClick,
 +        interactionSource = interactions,
 +        modifier = modifier.heightIn(min = 48.dp).then(touch),
-+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
++        // Quiet at rest (search is the only filled field); a light fill marks focus.
++        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(24.dp)),
 +        colors = ClickableSurfaceDefaults.colors(
-+            containerColor = if (primary) Teal else Panel,
-+            contentColor = if (primary) OnAccent else Ink,
-+            focusedContainerColor = if (primary) colorResource(R.color.film_flow_focus) else FocusPanel,
-+            focusedContentColor = if (primary) OnAccent else Ink,
-+            pressedContainerColor = if (primary) colorResource(R.color.film_flow_pressed) else FocusPanel,
-+            pressedContentColor = if (primary) OnAccent else Ink,
++            containerColor = if (primary) Field else Color.Transparent,
++            contentColor = Ink,
++            focusedContainerColor = Ink,
++            focusedContentColor = OnFocus,
++            pressedContainerColor = Ink.copy(alpha = 0.85f),
++            pressedContentColor = OnFocus,
 +        ),
-+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
++        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
 +    ) {
 +        androidx.compose.foundation.layout.Box(
 +            modifier = Modifier.heightIn(min = 48.dp),
@@ -3911,10 +4507,25 @@ index 0000000..64538a3
 +    }
 +}
 diff --git a/app/src/leanback/res/layout/activity_home.xml b/app/src/leanback/res/layout/activity_home.xml
-index 2dafd49..11834e9 100644
+index 2dafd49..fd715eb 100644
 --- a/app/src/leanback/res/layout/activity_home.xml
 +++ b/app/src/leanback/res/layout/activity_home.xml
-@@ -12,6 +12,12 @@
+@@ -5,6 +5,14 @@
+     android:layout_width="match_parent"
+     android:layout_height="match_parent">
+ 
++    <FrameLayout
++        android:id="@+id/modernHomeHero"
++        android:layout_width="match_parent"
++        android:layout_height="match_parent"
++        android:focusable="false"
++        android:importantForAccessibility="noHideDescendants"
++        android:visibility="gone" />
++
+     <androidx.appcompat.widget.LinearLayoutCompat
+         android:id="@+id/nativeContent"
+         android:layout_width="match_parent"
+@@ -12,6 +20,19 @@
          android:orientation="vertical"
          android:paddingTop="80dp">
  
@@ -3924,17 +4535,26 @@ index 2dafd49..11834e9 100644
 +            android:layout_height="wrap_content"
 +            android:visibility="gone" />
 +
++        <View
++            android:id="@+id/modernHeroSpace"
++            android:layout_width="match_parent"
++            android:layout_height="0dp"
++            android:focusable="false"
++            android:visibility="gone" />
++
          <androidx.leanback.widget.HorizontalGridView
              android:id="@+id/typeRecycler"
              android:layout_width="match_parent"
 diff --git a/app/src/leanback/res/values/film_shelf_home.xml b/app/src/leanback/res/values/film_shelf_home.xml
 new file mode 100644
-index 0000000..faae521
+index 0000000..c7d3482
 --- /dev/null
 +++ b/app/src/leanback/res/values/film_shelf_home.xml
-@@ -0,0 +1,10 @@
+@@ -0,0 +1,12 @@
 +<resources>
 +    <bool name="film_shelf_modern_native_home">true</bool>
++    <bool name="film_shelf_modern_hero">false</bool>
++    <bool name="film_shelf_solid_background">true</bool>
 +    <color name="film_shelf_home_background">#111619</color>
 +    <string name="film_shelf_home_brand">Film Shelf</string>
 +    <string name="film_shelf_home_search">Search titles</string>
@@ -4283,7 +4903,7 @@ index 6c2bb6d..9b154a9 100644
  
      @Override
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/SearchAdapter.java b/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/SearchAdapter.java
-index 86c230a..e581fe7 100644
+index 86c230a..54b2bec 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/SearchAdapter.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/SearchAdapter.java
 @@ -11,12 +11,17 @@ import androidx.recyclerview.widget.RecyclerView;
@@ -4400,6 +5020,15 @@ index 86c230a..e581fe7 100644
          notifyDataSetChanged();
      }
  
+@@ -116,7 +179,7 @@ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder
+     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+         ViewHolder holder = new ViewHolder(AdapterSearchBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
+         holder.binding.getRoot().getLayoutParams().width = width;
+-        holder.binding.getRoot().getLayoutParams().height = height + ResUtil.dp2px(34);
++        holder.binding.getRoot().getLayoutParams().height = height + ResUtil.dp2px(44);
+         holder.binding.image.getLayoutParams().height = height;
+         return holder;
+     }
 @@ -125,15 +188,28 @@ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder
      public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
          Vod item = items.get(position);
@@ -4408,7 +5037,8 @@ index 86c230a..e581fe7 100644
 +        bindSourceLabel(holder, item);
          holder.binding.remark.setText(item.getRemarks());
 -        holder.binding.site.setVisibility(item.getSiteVisible());
-         holder.binding.remark.setVisibility(item.getRemarkVisible());
+-        holder.binding.remark.setVisibility(item.getRemarkVisible());
++        holder.binding.remark.setVisibility(item.getRemarks().trim().matches("0(\\.0+)?") ? android.view.View.GONE : item.getRemarkVisible());
          holder.binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
          holder.binding.getRoot().setOnKeyListener((v, keyCode, event) -> listener.onItemKey(holder.getBindingAdapterPosition(), keyCode, event));
          ImgUtil.load(item.getName(), item.getPic(), holder.binding.image, width, height);
@@ -4498,10 +5128,10 @@ index a4c9d71..0c2f4d9 100644
      <androidx.appcompat.widget.LinearLayoutCompat
 diff --git a/app/src/leanback/res/values/film_flow.xml b/app/src/leanback/res/values/film_flow.xml
 new file mode 100644
-index 0000000..c95fd9e
+index 0000000..52e35e4
 --- /dev/null
 +++ b/app/src/leanback/res/values/film_flow.xml
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,43 @@
 +<resources>
 +    <color name="film_flow_ink">#F5F2EC</color>
 +    <color name="film_flow_muted">#AAB7B8</color>
@@ -4543,13 +5173,14 @@ index 0000000..c95fd9e
 +    <string name="film_scan_other">Find other sources</string>
 +    <string name="film_category_title">Browse categories</string>
 +    <string name="film_category_back">Back</string>
++    <string name="film_detail_lines">Lines</string>
 +</resources>
 diff --git a/app/src/leanback/res/values-zh-rCN/film_flow.xml b/app/src/leanback/res/values-zh-rCN/film_flow.xml
 new file mode 100644
-index 0000000..3640728
+index 0000000..652f4a7
 --- /dev/null
 +++ b/app/src/leanback/res/values-zh-rCN/film_flow.xml
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,17 @@
 +<resources>
 +    <string name="film_keyboard">系统键盘</string>
 +    <string name="film_phone_input">手机输入</string>
@@ -4565,13 +5196,14 @@ index 0000000..3640728
 +    <string name="film_scan_other">查找其他来源</string>
 +    <string name="film_category_title">分类浏览</string>
 +    <string name="film_category_back">返回</string>
++    <string name="film_detail_lines">线路</string>
 +</resources>
 diff --git a/app/src/leanback/res/values-zh-rTW/film_flow.xml b/app/src/leanback/res/values-zh-rTW/film_flow.xml
 new file mode 100644
-index 0000000..c06bde9
+index 0000000..6f91447
 --- /dev/null
 +++ b/app/src/leanback/res/values-zh-rTW/film_flow.xml
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,17 @@
 +<resources>
 +    <string name="film_keyboard">系統鍵盤</string>
 +    <string name="film_phone_input">手機輸入</string>
@@ -4587,9 +5219,10 @@ index 0000000..c06bde9
 +    <string name="film_scan_other">尋找其他來源</string>
 +    <string name="film_category_title">分類瀏覽</string>
 +    <string name="film_category_back">返回</string>
++    <string name="film_detail_lines">線路</string>
 +</resources>
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VodActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VodActivity.java
-index 636d980..3dc76bb 100644
+index 636d980..d5e06a7 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VodActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VodActivity.java
 @@ -38,7 +38,6 @@ public class VodActivity extends BaseActivity implements TypeAdapter.OnClickList
@@ -4634,8 +5267,9 @@ index 636d980..3dc76bb 100644
  
      private void setRecyclerView() {
 -        mBinding.recycler.requestFocus();
+-        mBinding.recycler.setHorizontalSpacing(ResUtil.dp2px(16));
 +        if (!mBinding.recycler.isInTouchMode()) mBinding.recycler.requestFocus();
-         mBinding.recycler.setHorizontalSpacing(ResUtil.dp2px(16));
++        mBinding.recycler.setHorizontalSpacing(ResUtil.dp2px(6));
          mBinding.recycler.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
 -        mBinding.recycler.setAdapter(mAdapter = new TypeAdapter(this));
 +        mBinding.recycler.setAdapter(mAdapter = new TypeAdapter(this, true));
@@ -4707,7 +5341,7 @@ index 636d980..3dc76bb 100644
      }
  
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/TypeAdapter.java b/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/TypeAdapter.java
-index e3688dd..e3872c5 100644
+index e3688dd..2266f9a 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/TypeAdapter.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/TypeAdapter.java
 @@ -4,6 +4,7 @@ import android.view.LayoutInflater;
@@ -4746,19 +5380,14 @@ index e3688dd..e3872c5 100644
      public void addAll(List<Class> items) {
          mItems.clear();
          mItems.addAll(items);
-@@ -47,15 +63,25 @@ public class TypeAdapter extends RecyclerView.Adapter<TypeAdapter.ViewHolder> {
+@@ -47,22 +63,38 @@ public class TypeAdapter extends RecyclerView.Adapter<TypeAdapter.ViewHolder> {
      @NonNull
      @Override
      public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
 -        return new ViewHolder(AdapterTypeBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
 +        ViewHolder holder = new ViewHolder(AdapterTypeBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
-+        if (filmTabs) {
-+            holder.binding.text.setBackgroundResource(R.drawable.film_action_background);
-+            holder.binding.text.setTextColor(AppCompatResources.getColorStateList(parent.getContext(), R.color.film_action_text));
-+            holder.binding.text.setMinHeight(parent.getResources().getDimensionPixelSize(R.dimen.film_flow_target));
-+            holder.binding.text.setPaddingRelative(ResUtil.dp2px(14), 0, ResUtil.dp2px(14), 0);
-+            holder.binding.text.setGravity(android.view.Gravity.CENTER);
-+        }
++        // Tab look comes from adapter_type.xml; the category screen only needs a full touch target.
++        if (filmTabs) holder.binding.text.setMinHeight(parent.getResources().getDimensionPixelSize(R.dimen.film_flow_target));
 +        return holder;
      }
  
@@ -4773,8 +5402,28 @@ index e3688dd..e3872c5 100644
 +        if (filmTabs) holder.binding.getRoot().setActivated(active);
 +        holder.binding.getRoot().setNextFocusUpId(filmTabs ? R.id.filmCategoryBack : R.id.title);
          holder.binding.getRoot().setNextFocusDownId(R.id.recycler);
-         holder.binding.text.setCompoundDrawablePadding(ResUtil.dp2px(4));
-         holder.binding.text.setCompoundDrawablesWithIntrinsicBounds(0, 0, getIcon(item), 0);
+-        holder.binding.text.setCompoundDrawablePadding(ResUtil.dp2px(4));
+-        holder.binding.text.setCompoundDrawablesWithIntrinsicBounds(0, 0, getIcon(item), 0);
++        holder.binding.text.setCompoundDrawablePadding(ResUtil.dp2px(6));
++        holder.binding.text.setCompoundDrawablesRelative(null, null, getIconDrawable(holder, item), null);
+         holder.binding.text.setListener(() -> mListener.onRefresh(item));
+         holder.binding.getRoot().setOnClickListener(v -> mListener.onItemClick(item));
+     }
+ 
++    private android.graphics.drawable.Drawable getIconDrawable(ViewHolder holder, Class item) {
++        int icon = getIcon(item);
++        if (icon == 0) return null;
++        android.graphics.drawable.Drawable drawable = AppCompatResources.getDrawable(holder.binding.text.getContext(), icon);
++        if (drawable == null) return null;
++        int size = ResUtil.dp2px(13);
++        drawable = drawable.mutate();
++        drawable.setBounds(0, 0, size, size);
++        return drawable;
++    }
++
+     private int getIcon(Class item) {
+         return Cache.get(item).isEmpty() ? 0 : item.getFilter() ? R.drawable.ic_vod_filter_off : R.drawable.ic_vod_filter_on;
+     }
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/custom/CustomVerticalGridView.java b/app/src/leanback/java/com/fongmi/android/tv/ui/custom/CustomVerticalGridView.java
 index 739c15d..550948d 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/custom/CustomVerticalGridView.java
@@ -4958,3 +5607,1217 @@ index 83999ef..224ba2b 100644
 +        android:layout_weight="1" />
  
  </androidx.appcompat.widget.LinearLayoutCompat>
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/SettingActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/SettingActivity.java
+index be6bedc..5bbb52e 100644
+--- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/SettingActivity.java
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/SettingActivity.java
+@@ -80,6 +80,7 @@ public class SettingActivity extends BaseActivity implements ConfigListener, Sit
+ 
+     @Override
+     protected void initView(Bundle savedInstanceState) {
++        if (getResources().getBoolean(R.bool.film_shelf_solid_background)) ((View) mBinding.wall.getParent()).setVisibility(View.GONE);
+         mBinding.vod.requestFocus();
+         mBinding.vodUrl.setText(VodConfig.getDesc());
+         mBinding.liveUrl.setText(LiveConfig.getDesc());
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/base/BaseActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/base/BaseActivity.java
+index b5617bf..bd4d86a 100644
+--- a/app/src/leanback/java/com/fongmi/android/tv/ui/base/BaseActivity.java
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/base/BaseActivity.java
+@@ -57,7 +57,15 @@ public abstract class BaseActivity extends AppCompatActivity {
+     }
+ 
+     private void addCustomWall() {
+-        ((ViewGroup) findViewById(android.R.id.content)).addView(new CustomWallView(this, null), 0, new ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT));
++        View wall;
++        if (getResources().getBoolean(com.fongmi.android.tv.R.bool.film_shelf_solid_background)) {
++            // Film Shelf uses one calm dark surface instead of the photo wallpaper.
++            wall = new View(this);
++            wall.setBackgroundColor(getColor(com.fongmi.android.tv.R.color.film_shelf_home_background));
++        } else {
++            wall = new CustomWallView(this, null);
++        }
++        ((ViewGroup) findViewById(android.R.id.content)).addView(wall, 0, new ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+     }
+ 
+     protected FragmentActivity getActivity() {
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/custom/VerticalOnlyGridView.java b/app/src/leanback/java/com/fongmi/android/tv/ui/custom/VerticalOnlyGridView.java
+new file mode 100644
+index 0000000..2721a73
+--- /dev/null
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/custom/VerticalOnlyGridView.java
+@@ -0,0 +1,55 @@
++package com.fongmi.android.tv.ui.custom;
++
++import android.annotation.SuppressLint;
++import android.content.Context;
++import android.util.AttributeSet;
++import android.view.MotionEvent;
++
++import androidx.annotation.NonNull;
++import androidx.annotation.Nullable;
++import androidx.leanback.widget.VerticalGridView;
++
++/**
++ * Leanback's multi-column VerticalGridView also reports horizontal scrolling,
++ * so a touch drag can slide the whole grid sideways. Episode tiles should
++ * only scroll vertically: pin the scroll gesture's x to where it started.
++ * Child taps and D-pad navigation are unaffected.
++ */
++public class VerticalOnlyGridView extends VerticalGridView {
++
++    private float downX;
++
++    public VerticalOnlyGridView(@NonNull Context context) {
++        super(context);
++    }
++
++    public VerticalOnlyGridView(@NonNull Context context, @Nullable AttributeSet attrs) {
++        super(context, attrs);
++    }
++
++    public VerticalOnlyGridView(@NonNull Context context, @Nullable AttributeSet attrs, int defStyle) {
++        super(context, attrs, defStyle);
++    }
++
++    @Override
++    public boolean onInterceptTouchEvent(MotionEvent e) {
++        return withLockedX(e, true);
++    }
++
++    @SuppressLint("ClickableViewAccessibility")
++    @Override
++    public boolean onTouchEvent(MotionEvent e) {
++        return withLockedX(e, false);
++    }
++
++    private boolean withLockedX(MotionEvent e, boolean intercept) {
++        if (e.getActionMasked() == MotionEvent.ACTION_DOWN) downX = e.getX();
++        MotionEvent locked = MotionEvent.obtain(e);
++        locked.setLocation(downX, e.getY());
++        try {
++            return intercept ? super.onInterceptTouchEvent(locked) : super.onTouchEvent(locked);
++        } finally {
++            locked.recycle();
++        }
++    }
++}
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/holder/VodRectHolder.java b/app/src/leanback/java/com/fongmi/android/tv/ui/holder/VodRectHolder.java
+index d28f13d..9ed1e8d 100644
+--- a/app/src/leanback/java/com/fongmi/android/tv/ui/holder/VodRectHolder.java
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/holder/VodRectHolder.java
+@@ -35,12 +35,17 @@ public class VodRectHolder extends BaseVodHolder {
+         binding.site.setVisibility(item.getSiteVisible());
+         binding.year.setVisibility(item.getYearVisible());
+         binding.name.setVisibility(item.getNameVisible());
+-        binding.remark.setVisibility(item.getRemarkVisible());
++        binding.remark.setVisibility(isEmptyScore(item.getRemarks()) ? android.view.View.GONE : item.getRemarkVisible());
+         binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
+         binding.getRoot().setOnLongClickListener(v -> listener.onLongClick(item));
+         ImgUtil.load(item.getName(), item.getPic(), binding.image);
+     }
+ 
++    /** Catalogs often send "0" for an unrated title; a lone zero reads as a bad score. */
++    private static boolean isEmptyScore(String remark) {
++        return remark != null && remark.trim().matches("0(\\.0+)?");
++    }
++
+     @Override
+     public void unbind() {
+         Glide.with(binding.image).clear(binding.image);
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/HeaderPresenter.java b/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/HeaderPresenter.java
+index bc28cbd..bad5fcf 100644
+--- a/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/HeaderPresenter.java
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/HeaderPresenter.java
+@@ -11,6 +11,17 @@ import com.fongmi.android.tv.utils.ResUtil;
+ 
+ public class HeaderPresenter extends Presenter {
+ 
++    private final java.util.function.Predicate<Object> hidden;
++
++    public HeaderPresenter() {
++        this(item -> false);
++    }
++
++    /** Headings matching {@code hidden} collapse, e.g. an empty Continue Watching section. */
++    public HeaderPresenter(java.util.function.Predicate<Object> hidden) {
++        this.hidden = hidden;
++    }
++
+     @NonNull
+     @Override
+     public Presenter.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent) {
+@@ -21,6 +32,15 @@ public class HeaderPresenter extends Presenter {
+     public void onBindViewHolder(@NonNull Presenter.ViewHolder viewHolder, Object object) {
+         HeaderPresenter.ViewHolder holder = (HeaderPresenter.ViewHolder) viewHolder;
+         holder.binding.text.setText(object instanceof String ? object.toString() : ResUtil.getString((int) object));
++        boolean hide = hidden.test(object);
++        // Leanback grids still lay out GONE children, so collapse the height too.
++        holder.view.setVisibility(hide ? android.view.View.GONE : android.view.View.VISIBLE);
++        android.view.ViewGroup.LayoutParams params = holder.view.getLayoutParams();
++        int height = hide ? 0 : android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
++        if (params != null && params.height != height) {
++            params.height = height;
++            holder.view.setLayoutParams(params);
++        }
+     }
+ 
+     @Override
+diff --git a/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfHero.kt b/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfHero.kt
+new file mode 100644
+index 0000000..bd977c6
+--- /dev/null
++++ b/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfHero.kt
+@@ -0,0 +1,257 @@
++package com.fongmi.android.tv.ui.filmshelf
++
++import android.graphics.drawable.ColorDrawable
++import android.graphics.drawable.Drawable
++import android.view.ViewGroup
++import android.widget.ImageView
++import androidx.compose.animation.AnimatedContent
++import androidx.compose.animation.fadeIn
++import androidx.compose.animation.fadeOut
++import androidx.compose.animation.togetherWith
++import androidx.compose.animation.core.tween
++import androidx.compose.foundation.background
++import androidx.compose.foundation.border
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.BoxWithConstraints
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxHeight
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableIntStateOf
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Brush
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.platform.ComposeView
++import androidx.compose.ui.platform.ViewCompositionStrategy
++import androidx.compose.ui.res.colorResource
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.Dp
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++import androidx.compose.ui.viewinterop.AndroidView
++import androidx.tv.material3.MaterialTheme
++import androidx.tv.material3.Text
++import com.bumptech.glide.Glide
++import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
++import com.fongmi.android.tv.R
++import com.fongmi.android.tv.utils.ImgUtil
++import com.fongmi.android.tv.utils.PosterPlaceholder
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.withContext
++
++/**
++ * Netflix-style billboard behind the native Home rows: the focused title's
++ * backdrop with edge scrims, and its title, facts and synopsis top-left.
++ * Presentation only; the Activity tells it which item is focused.
++ */
++object FilmShelfHero {
++
++    /** Immutable description of what the billboard shows. */
++    class Item @JvmOverloads constructor(
++        val key: String,
++        val title: String,
++        val year: String? = null,
++        val facts: List<String> = emptyList(),
++        val badge: String? = null,
++        val overview: String? = null,
++        val poster: String? = null,
++        val backdrop: String? = null,
++    )
++
++    class Controller internal constructor() {
++        internal var item by mutableStateOf<Item?>(null)
++        internal var topInset by mutableIntStateOf(0)
++
++        val key: String? get() = item?.key
++
++        fun show(next: Item?) {
++            if (next?.key == item?.key && next?.title == item?.title) return
++            item = next
++        }
++
++        /** Space, in px, taken by the chrome above the billboard text. */
++        fun setTopInset(px: Int) { topInset = px }
++    }
++
++    @JvmStatic
++    fun attach(parent: ViewGroup): Controller {
++        val controller = Controller()
++        val view = ComposeView(parent.context).apply {
++            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
++            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
++            isFocusable = false
++        }
++        view.setContent { FilmShelfTheme { Billboard(controller) } }
++        parent.addView(view)
++        return controller
++    }
++}
++
++private data class Resolved(
++    val item: FilmShelfHero.Item,
++    val image: String?,
++    val sharp: Boolean,
++    val overview: String?,
++    val rating: String?,
++)
++
++private fun resolve(item: FilmShelfHero.Item, art: FilmShelfTmdb.Art?): Resolved {
++    val backdrop = item.backdrop?.takeIf { it.isNotBlank() } ?: art?.backdrop
++    return Resolved(
++        item = item,
++        image = backdrop ?: item.poster?.takeIf { it.isNotBlank() },
++        sharp = backdrop != null,
++        overview = item.overview?.takeIf { it.isNotBlank() } ?: art?.overview,
++        rating = art?.rating,
++    )
++}
++
++@Composable
++private fun Billboard(controller: FilmShelfHero.Controller) {
++    val background = colorResource(R.color.film_shelf_home_background)
++    val item = controller.item
++    var resolved by androidx.compose.runtime.remember { mutableStateOf<Resolved?>(null) }
++
++    LaunchedEffect(item?.key, item?.title) {
++        if (item == null) { resolved = null; return@LaunchedEffect }
++        val cached = FilmShelfTmdb.cached(item.title, item.year)
++        resolved = resolve(item, cached)
++        if (cached != null || !item.backdrop.isNullOrBlank() || !FilmShelfTmdb.enabled) return@LaunchedEffect
++        // Wait for focus to settle so D-pad scrubbing through a row costs no requests.
++        delay(450)
++        val art = withContext(Dispatchers.IO) { FilmShelfTmdb.lookup(item.title, item.year) } ?: return@LaunchedEffect
++        resolved = resolve(item, art)
++    }
++
++    Box(Modifier.fillMaxSize().background(background)) {
++        Backdrop(resolved, background)
++        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(
++            0f to background, 0.32f to background.copy(alpha = 0.86f), 0.62f to background.copy(alpha = 0.18f), 1f to Color.Transparent,
++        )))
++        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
++            0f to background.copy(alpha = 0.55f), 0.18f to Color.Transparent, 0.42f to Color.Transparent, 0.66f to background,
++        )))
++        BoxWithConstraints(Modifier.fillMaxSize()) {
++            val top: Dp = with(androidx.compose.ui.platform.LocalDensity.current) { controller.topInset.toDp() }
++            AnimatedContent(
++                targetState = resolved,
++                transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(160)) },
++                contentKey = { it?.item?.key to it?.overview },
++                label = "hero",
++            ) { state ->
++                if (state != null) Info(state, Modifier.padding(start = 48.dp, top = top + 4.dp).width(maxWidth * 0.46f))
++            }
++        }
++    }
++}
++
++@Composable
++private fun Backdrop(state: Resolved?, background: Color) {
++    val tint = android.graphics.Color.argb(255, (background.red * 255).toInt(), (background.green * 255).toInt(), (background.blue * 255).toInt())
++    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
++        AndroidView(
++            modifier = Modifier.fillMaxWidth(0.78f).fillMaxHeight(0.76f),
++            factory = { context ->
++                ImageView(context).apply {
++                    scaleType = ImageView.ScaleType.CENTER_CROP
++                    isFocusable = false
++                    setImageDrawable(ColorDrawable(tint))
++                }
++            },
++            update = { view -> load(view, state) },
++        )
++    }
++}
++
++private fun load(view: ImageView, state: Resolved?) {
++    val tag = state?.let { "${it.item.key}|${it.image}|${it.sharp}" }
++    if (view.tag == tag) return
++    view.tag = tag
++    if (state == null) return
++    val fallback: Drawable = PosterPlaceholder(state.item.title, false)
++    val url = state.image?.let { ImgUtil.getUrl(it) }
++    if (url == null) {
++        Glide.with(view).clear(view)
++        view.setImageDrawable(fallback)
++        view.alpha = 0.9f
++        return
++    }
++    view.alpha = if (state.sharp) 1f else 0.55f
++    val request = Glide.with(view).load(url)
++        .placeholder(view.drawable ?: fallback)
++        .error(fallback)
++        .transition(DrawableTransitionOptions.withCrossFade(420))
++        .centerCrop()
++    // Posters are portrait and often low-res: a tiny decode upscaled by the
++    // ImageView reads as a soft colour field instead of a blurry crop.
++    if (state.sharp) request.into(view) else request.override(48, 27).into(view)
++}
++
++@Composable
++private fun Info(state: Resolved, modifier: Modifier) {
++    val ink = colorResource(R.color.film_flow_ink)
++    val muted = colorResource(R.color.film_flow_muted)
++    val accent = colorResource(R.color.film_flow_accent)
++    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
++        Text(
++            state.item.title,
++            color = ink,
++            fontSize = if (state.item.title.length > 12) 30.sp else 38.sp,
++            fontWeight = FontWeight.Bold,
++            lineHeight = 42.sp,
++            maxLines = 2,
++            overflow = TextOverflow.Ellipsis,
++        )
++        val facts = buildList {
++            state.rating?.let { add("★ $it") }
++            state.item.year?.takeIf { it.isNotBlank() }?.let { add(it.trim()) }
++            addAll(state.item.facts.filter { it.isNotBlank() }.map { it.trim() })
++        }.distinct()
++        if (facts.isNotEmpty() || !state.item.badge.isNullOrBlank()) {
++            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
++                state.item.badge?.takeIf { it.isNotBlank() }?.let {
++                    Text(
++                        it,
++                        color = accent,
++                        style = MaterialTheme.typography.labelMedium,
++                        fontWeight = FontWeight.SemiBold,
++                        maxLines = 1,
++                        modifier = Modifier
++                            .border(1.dp, accent.copy(alpha = 0.7f), RoundedCornerShape(6.dp))
++                            .padding(horizontal = 7.dp, vertical = 2.dp),
++                    )
++                }
++                Text(
++                    facts.joinToString("  ·  "),
++                    color = muted,
++                    style = MaterialTheme.typography.bodyMedium,
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis,
++                )
++            }
++        }
++        state.overview?.let {
++            Text(
++                it.replace(Regex("\\s+"), " ").trim(),
++                color = ink.copy(alpha = 0.82f),
++                style = MaterialTheme.typography.bodyMedium,
++                lineHeight = 21.sp,
++                maxLines = 3,
++                overflow = TextOverflow.Ellipsis,
++            )
++        }
++    }
++}
+diff --git a/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfTmdb.kt b/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfTmdb.kt
+new file mode 100644
+index 0000000..dd5b5d8
+--- /dev/null
++++ b/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfTmdb.kt
+@@ -0,0 +1,79 @@
++package com.fongmi.android.tv.ui.filmshelf
++
++import android.util.LruCache
++import com.fongmi.android.tv.BuildConfig
++import com.github.catvod.net.OkHttp
++import org.json.JSONObject
++import java.net.URLEncoder
++
++/**
++ * Optional TMDB artwork lookup for the Home hero. Disabled unless a token is
++ * built in (`tmdbToken` in local.properties or FILM_SHELF_TMDB_TOKEN). Only the
++ * title is sent; results, including misses, are cached for the process.
++ */
++internal object FilmShelfTmdb {
++    data class Art(val backdrop: String?, val overview: String?, val rating: String?, val year: String?)
++
++    private const val API = "https://api.themoviedb.org/3/search/multi"
++    private const val IMAGE = "https://image.tmdb.org/t/p/w1280"
++    private val MISS = Art(null, null, null, null)
++    private val cache = LruCache<String, Art>(256)
++    private val seasonSuffix = Regex("""\s*(第[一二三四五六七八九十0-9]+[季部]|[Ss]eason\s*\d+|[Ss]\d{1,2}|\(\d{4}\)|（\d{4}）|[\[【].*?[\]】])\s*$""")
++
++    private val token: String get() = BuildConfig.TMDB_TOKEN
++
++    val enabled: Boolean get() = token.isNotBlank()
++
++    fun cached(title: String, year: String?): Art? = cache.get(key(title, year))?.takeIf { it !== MISS }
++
++    /** Blocking; call off the main thread. */
++    fun lookup(title: String, year: String?): Art? {
++        if (!enabled || title.isBlank()) return null
++        val key = key(title, year)
++        cache.get(key)?.let { return it.takeIf { art -> art !== MISS } }
++        val clean = seasonSuffix.replace(title.trim(), "").trim()
++        val art = search(title.trim(), year) ?: clean.takeIf { it.isNotEmpty() && it != title.trim() }?.let { search(it, year) }
++        cache.put(key, art ?: MISS)
++        return art
++    }
++
++    private fun key(title: String, year: String?) = "${title.trim()}|${year.orEmpty()}"
++
++    private fun search(query: String, year: String?): Art? = try {
++        val bearer = token.startsWith("eyJ")
++        val url = buildString {
++            append(API).append("?language=zh-CN&include_adult=false&query=")
++            append(URLEncoder.encode(query, "UTF-8"))
++            if (!bearer) append("&api_key=").append(URLEncoder.encode(token, "UTF-8"))
++        }
++        val headers = if (bearer) mapOf("Authorization" to "Bearer $token", "Accept" to "application/json")
++            else mapOf("Accept" to "application/json")
++        OkHttp.newCall(url, headers).execute().use { response ->
++            if (!response.isSuccessful) null else pick(JSONObject(response.body.string()), year)
++        }
++    } catch (e: Exception) {
++        null
++    }
++
++    private fun pick(json: JSONObject, year: String?): Art? {
++        val results = json.optJSONArray("results") ?: return null
++        var fallback: Art? = null
++        for (i in 0 until results.length()) {
++            val item = results.optJSONObject(i) ?: continue
++            val type = item.optString("media_type")
++            if (type != "movie" && type != "tv") continue
++            val path = item.optString("backdrop_path").takeIf { it.startsWith("/") } ?: continue
++            val date = item.optString(if (type == "movie") "release_date" else "first_air_date")
++            val vote = item.optDouble("vote_average", 0.0)
++            val art = Art(
++                backdrop = IMAGE + path,
++                overview = item.optString("overview").takeIf { it.isNotBlank() },
++                rating = if (vote > 0) String.format("%.1f", vote) else null,
++                year = date.take(4).takeIf { it.length == 4 },
++            )
++            if (year.isNullOrBlank() || art.year == year.trim().take(4)) return art
++            if (fallback == null) fallback = art
++        }
++        return fallback
++    }
++}
+diff --git a/app/src/leanback/res/color/film_card_stroke.xml b/app/src/leanback/res/color/film_card_stroke.xml
+new file mode 100644
+index 0000000..6d49c39
+--- /dev/null
++++ b/app/src/leanback/res/color/film_card_stroke.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_pressed="true" android:color="@color/film_flow_ink" />
++    <item android:state_focused="true" android:color="@color/film_flow_ink" />
++    <item android:color="#00000000" />
++</selector>
+diff --git a/app/src/leanback/res/color/film_card_title.xml b/app/src/leanback/res/color/film_card_title.xml
+new file mode 100644
+index 0000000..484cc7a
+--- /dev/null
++++ b/app/src/leanback/res/color/film_card_title.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_pressed="true" android:color="@color/film_flow_ink" />
++    <item android:state_focused="true" android:color="@color/film_flow_ink" />
++    <item android:color="#B8F5F2EC" />
++</selector>
+diff --git a/app/src/leanback/res/color/film_episode_text.xml b/app/src/leanback/res/color/film_episode_text.xml
+new file mode 100644
+index 0000000..520d01f
+--- /dev/null
++++ b/app/src/leanback/res/color/film_episode_text.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_selected="true" android:color="@color/film_flow_on_accent" />
++    <item android:state_activated="true" android:color="@color/film_flow_on_accent" />
++    <item android:color="@color/film_flow_ink" />
++</selector>
+diff --git a/app/src/leanback/res/color/film_flag_text.xml b/app/src/leanback/res/color/film_flag_text.xml
+new file mode 100644
+index 0000000..d83fd2a
+--- /dev/null
++++ b/app/src/leanback/res/color/film_flag_text.xml
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_pressed="true" android:color="@color/film_shelf_home_background" />
++    <item android:state_focused="true" android:color="@color/film_shelf_home_background" />
++    <item android:state_selected="true" android:color="@color/film_flow_accent" />
++    <item android:state_activated="true" android:color="@color/film_flow_accent" />
++    <item android:color="#D9F5F2EC" />
++</selector>
+diff --git a/app/src/leanback/res/color/film_tab_text.xml b/app/src/leanback/res/color/film_tab_text.xml
+new file mode 100644
+index 0000000..a61acba
+--- /dev/null
++++ b/app/src/leanback/res/color/film_tab_text.xml
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_pressed="true" android:color="@color/film_shelf_home_background" />
++    <item android:state_focused="true" android:color="@color/film_shelf_home_background" />
++    <item android:state_activated="true" android:color="@color/film_flow_ink" />
++    <item android:state_selected="true" android:color="@color/film_flow_ink" />
++    <item android:color="@color/film_flow_muted" />
++</selector>
+diff --git a/app/src/leanback/res/color/text.xml b/app/src/leanback/res/color/text.xml
+index ba92946..ee94f25 100644
+--- a/app/src/leanback/res/color/text.xml
++++ b/app/src/leanback/res/color/text.xml
+@@ -1,8 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <selector xmlns:android="http://schemas.android.com/apk/res/android">
+-    <item android:color="@color/yellow_500" android:state_focused="true" android:state_selected="true" />
+-    <item android:color="@color/yellow_500" android:state_selected="true" />
+-    <item android:color="@color/yellow_500" android:state_selected="true" />
+-    <item android:color="@color/yellow_500" android:state_checked="true" />
+-    <item android:color="@color/white" />
+-</selector>
+\ No newline at end of file
++    <item android:color="@color/film_flow_accent" android:state_selected="true" />
++    <item android:color="@color/film_flow_accent" android:state_checked="true" />
++    <item android:color="@color/film_flow_ink" />
++</selector>
+diff --git a/app/src/leanback/res/drawable/film_card_chip.xml b/app/src/leanback/res/drawable/film_card_chip.xml
+new file mode 100644
+index 0000000..ec2df7f
+--- /dev/null
++++ b/app/src/leanback/res/drawable/film_card_chip.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="#C7101416" />
++    <corners android:radius="6dp" />
++    <padding android:left="6dp" android:top="2dp" android:right="6dp" android:bottom="2dp" />
++</shape>
+diff --git a/app/src/leanback/res/drawable/film_card_poster_bg.xml b/app/src/leanback/res/drawable/film_card_poster_bg.xml
+new file mode 100644
+index 0000000..94fbd20
+--- /dev/null
++++ b/app/src/leanback/res/drawable/film_card_poster_bg.xml
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="#1AFFFFFF" />
++    <corners android:radius="10dp" />
++</shape>
+diff --git a/app/src/leanback/res/drawable/film_card_progress.xml b/app/src/leanback/res/drawable/film_card_progress.xml
+new file mode 100644
+index 0000000..5606234
+--- /dev/null
++++ b/app/src/leanback/res/drawable/film_card_progress.xml
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="utf-8"?>
++<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:id="@android:id/background">
++        <shape><solid android:color="#59FFFFFF" /><corners android:radius="2dp" /></shape>
++    </item>
++    <item android:id="@android:id/progress">
++        <clip><shape><solid android:color="@color/film_flow_accent" /><corners android:radius="2dp" /></shape></clip>
++    </item>
++</layer-list>
+diff --git a/app/src/leanback/res/drawable/film_episode_background.xml b/app/src/leanback/res/drawable/film_episode_background.xml
+new file mode 100644
+index 0000000..3d654a1
+--- /dev/null
++++ b/app/src/leanback/res/drawable/film_episode_background.xml
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="utf-8"?>
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_focused="true" android:state_selected="true"><shape><solid android:color="@color/film_flow_accent" /><corners android:radius="10dp" /><padding android:left="12dp" android:top="8dp" android:right="12dp" android:bottom="8dp" /><stroke android:width="2dp" android:color="@color/film_flow_ink" /></shape></item>
++    <item android:state_pressed="true"><shape><solid android:color="#2EFFFFFF" /><corners android:radius="10dp" /><padding android:left="12dp" android:top="8dp" android:right="12dp" android:bottom="8dp" /><stroke android:width="2dp" android:color="@color/film_flow_ink" /></shape></item>
++    <item android:state_focused="true"><shape><solid android:color="#2EFFFFFF" /><corners android:radius="10dp" /><padding android:left="12dp" android:top="8dp" android:right="12dp" android:bottom="8dp" /><stroke android:width="2dp" android:color="@color/film_flow_ink" /></shape></item>
++    <item android:state_selected="true"><shape><solid android:color="@color/film_flow_accent" /><corners android:radius="10dp" /><padding android:left="12dp" android:top="8dp" android:right="12dp" android:bottom="8dp" /></shape></item>
++    <item android:state_activated="true"><shape><solid android:color="@color/film_flow_accent" /><corners android:radius="10dp" /><padding android:left="12dp" android:top="8dp" android:right="12dp" android:bottom="8dp" /></shape></item>
++    <item><shape><solid android:color="#14FFFFFF" /><corners android:radius="10dp" /><padding android:left="12dp" android:top="8dp" android:right="12dp" android:bottom="8dp" /></shape></item>
++</selector>
+diff --git a/app/src/leanback/res/drawable/film_flag_background.xml b/app/src/leanback/res/drawable/film_flag_background.xml
+new file mode 100644
+index 0000000..aff1ebd
+--- /dev/null
++++ b/app/src/leanback/res/drawable/film_flag_background.xml
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_pressed="true"><shape><solid android:color="@color/film_flow_ink" /><corners android:radius="20dp" /><padding android:left="16dp" android:top="8dp" android:right="16dp" android:bottom="8dp" /></shape></item>
++    <item android:state_focused="true"><shape><solid android:color="@color/film_flow_ink" /><corners android:radius="20dp" /><padding android:left="16dp" android:top="8dp" android:right="16dp" android:bottom="8dp" /></shape></item>
++    <item android:state_selected="true"><shape><solid android:color="#2E9BE4D2" /><corners android:radius="20dp" /><padding android:left="16dp" android:top="8dp" android:right="16dp" android:bottom="8dp" /><stroke android:width="1.5dp" android:color="@color/film_flow_accent" /></shape></item>
++    <item android:state_activated="true"><shape><solid android:color="#2E9BE4D2" /><corners android:radius="20dp" /><padding android:left="16dp" android:top="8dp" android:right="16dp" android:bottom="8dp" /><stroke android:width="1.5dp" android:color="@color/film_flow_accent" /></shape></item>
++    <item><shape><solid android:color="#00000000" /><corners android:radius="20dp" /><padding android:left="16dp" android:top="8dp" android:right="16dp" android:bottom="8dp" /><stroke android:width="1dp" android:color="#40FFFFFF" /></shape></item>
++</selector>
+diff --git a/app/src/leanback/res/drawable/film_ic_play.xml b/app/src/leanback/res/drawable/film_ic_play.xml
+new file mode 100644
+index 0000000..b132470
+--- /dev/null
++++ b/app/src/leanback/res/drawable/film_ic_play.xml
+@@ -0,0 +1,4 @@
++<?xml version="1.0" encoding="utf-8"?>
++<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="20dp" android:height="20dp" android:viewportWidth="24" android:viewportHeight="24">
++    <path android:fillColor="@color/film_shelf_home_background" android:pathData="M8,5.14v13.72c0,0.79 0.87,1.27 1.54,0.84l10.29,-6.86c0.6,-0.4 0.6,-1.28 0,-1.68L9.54,4.3C8.87,3.87 8,4.35 8,5.14z" />
++</vector>
+diff --git a/app/src/leanback/res/drawable/film_primary_background.xml b/app/src/leanback/res/drawable/film_primary_background.xml
+new file mode 100644
+index 0000000..929e07d
+--- /dev/null
++++ b/app/src/leanback/res/drawable/film_primary_background.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_pressed="true"><shape><solid android:color="#D9F5F2EC" /><corners android:radius="24dp" /><padding android:left="22dp" android:top="0dp" android:right="22dp" android:bottom="0dp" /></shape></item>
++    <item android:state_focused="true"><shape><solid android:color="#FFFFFFFF" /><corners android:radius="24dp" /><padding android:left="22dp" android:top="0dp" android:right="22dp" android:bottom="0dp" /><stroke android:width="3dp" android:color="@color/film_flow_accent" /></shape></item>
++    <item><shape><solid android:color="@color/film_flow_ink" /><corners android:radius="24dp" /><padding android:left="22dp" android:top="0dp" android:right="22dp" android:bottom="0dp" /></shape></item>
++</selector>
+diff --git a/app/src/leanback/res/drawable/film_tab_background.xml b/app/src/leanback/res/drawable/film_tab_background.xml
+new file mode 100644
+index 0000000..9fdacc4
+--- /dev/null
++++ b/app/src/leanback/res/drawable/film_tab_background.xml
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_pressed="true"><shape><solid android:color="@color/film_flow_ink" /><corners android:radius="20dp" /></shape></item>
++    <item android:state_focused="true"><shape><solid android:color="@color/film_flow_ink" /><corners android:radius="20dp" /></shape></item>
++    <item android:state_activated="true"><shape><solid android:color="#1FFFFFFF" /><corners android:radius="20dp" /></shape></item>
++    <item android:state_selected="true"><shape><solid android:color="#1FFFFFFF" /><corners android:radius="20dp" /></shape></item>
++    <item><shape><solid android:color="#00000000" /><corners android:radius="20dp" /></shape></item>
++</selector>
+diff --git a/app/src/leanback/res/drawable/shape_item_activated.xml b/app/src/leanback/res/drawable/shape_item_activated.xml
+index e851791..244966e 100644
+--- a/app/src/leanback/res/drawable/shape_item_activated.xml
++++ b/app/src/leanback/res/drawable/shape_item_activated.xml
+@@ -1,15 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+-<shape xmlns:android="http://schemas.android.com/apk/res/android"
+-    android:shape="rectangle">
+-
+-    <solid android:color="@color/black_40" />
+-
+-    <corners android:radius="4dp" />
+-
+-    <padding
+-        android:bottom="8dp"
+-        android:left="12dp"
+-        android:right="12dp"
+-        android:top="8dp" />
+-
+-</shape>
+\ No newline at end of file
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="#2E9BE4D2" />
++    <corners android:radius="10dp" />
++    <padding android:bottom="8dp" android:left="12dp" android:right="12dp" android:top="8dp" />
++</shape>
+diff --git a/app/src/leanback/res/drawable/shape_item_focused.xml b/app/src/leanback/res/drawable/shape_item_focused.xml
+index a6e8c67..ecf3f90 100644
+--- a/app/src/leanback/res/drawable/shape_item_focused.xml
++++ b/app/src/leanback/res/drawable/shape_item_focused.xml
+@@ -1,19 +1,7 @@
+ <?xml version="1.0" encoding="utf-8"?>
+-<shape xmlns:android="http://schemas.android.com/apk/res/android"
+-    android:shape="rectangle">
+-
+-    <solid android:color="@color/black_40" />
+-
+-    <corners android:radius="4dp" />
+-
+-    <padding
+-        android:bottom="8dp"
+-        android:left="12dp"
+-        android:right="12dp"
+-        android:top="8dp" />
+-
+-    <stroke
+-        android:width="1.5dp"
+-        android:color="@color/white" />
+-
+-</shape>
+\ No newline at end of file
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="#24FFFFFF" />
++    <corners android:radius="10dp" />
++    <padding android:bottom="8dp" android:left="12dp" android:right="12dp" android:top="8dp" />
++    <stroke android:width="2dp" android:color="@color/film_flow_ink" />
++</shape>
+diff --git a/app/src/leanback/res/drawable/shape_item_normal.xml b/app/src/leanback/res/drawable/shape_item_normal.xml
+index edef874..ffd812c 100644
+--- a/app/src/leanback/res/drawable/shape_item_normal.xml
++++ b/app/src/leanback/res/drawable/shape_item_normal.xml
+@@ -1,15 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+-<shape xmlns:android="http://schemas.android.com/apk/res/android"
+-    android:shape="rectangle">
+-
+-    <solid android:color="@color/black_20" />
+-
+-    <corners android:radius="4dp" />
+-
+-    <padding
+-        android:bottom="8dp"
+-        android:left="12dp"
+-        android:right="12dp"
+-        android:top="8dp" />
+-
+-</shape>
+\ No newline at end of file
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="#12FFFFFF" />
++    <corners android:radius="10dp" />
++    <padding android:bottom="8dp" android:left="12dp" android:right="12dp" android:top="8dp" />
++</shape>
+diff --git a/app/src/leanback/res/drawable/shape_item_round_activated.xml b/app/src/leanback/res/drawable/shape_item_round_activated.xml
+index 8e7f9fc..22e041a 100644
+--- a/app/src/leanback/res/drawable/shape_item_round_activated.xml
++++ b/app/src/leanback/res/drawable/shape_item_round_activated.xml
+@@ -1,15 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+-<shape xmlns:android="http://schemas.android.com/apk/res/android"
+-    android:shape="rectangle">
+-
+-    <solid android:color="@color/black_40" />
+-
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="#2E9BE4D2" />
+     <corners android:radius="28dp" />
+-
+-    <padding
+-        android:bottom="8dp"
+-        android:left="14dp"
+-        android:right="14dp"
+-        android:top="8dp" />
+-
+-</shape>
+\ No newline at end of file
++    <padding android:bottom="8dp" android:left="14dp" android:right="14dp" android:top="8dp" />
++</shape>
+diff --git a/app/src/leanback/res/drawable/shape_item_round_focused.xml b/app/src/leanback/res/drawable/shape_item_round_focused.xml
+index a15a719..971850b 100644
+--- a/app/src/leanback/res/drawable/shape_item_round_focused.xml
++++ b/app/src/leanback/res/drawable/shape_item_round_focused.xml
+@@ -1,19 +1,7 @@
+ <?xml version="1.0" encoding="utf-8"?>
+-<shape xmlns:android="http://schemas.android.com/apk/res/android"
+-    android:shape="rectangle">
+-
+-    <solid android:color="@color/black_40" />
+-
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="#24FFFFFF" />
+     <corners android:radius="28dp" />
+-
+-    <padding
+-        android:bottom="8dp"
+-        android:left="14dp"
+-        android:right="14dp"
+-        android:top="8dp" />
+-
+-    <stroke
+-        android:width="1.5dp"
+-        android:color="@color/white" />
+-
+-</shape>
+\ No newline at end of file
++    <padding android:bottom="8dp" android:left="14dp" android:right="14dp" android:top="8dp" />
++    <stroke android:width="2dp" android:color="@color/film_flow_ink" />
++</shape>
+diff --git a/app/src/leanback/res/drawable/shape_item_round_normal.xml b/app/src/leanback/res/drawable/shape_item_round_normal.xml
+index e71e056..2bc7142 100644
+--- a/app/src/leanback/res/drawable/shape_item_round_normal.xml
++++ b/app/src/leanback/res/drawable/shape_item_round_normal.xml
+@@ -1,15 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+-<shape xmlns:android="http://schemas.android.com/apk/res/android"
+-    android:shape="rectangle">
+-
+-    <solid android:color="@color/black_20" />
+-
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="#12FFFFFF" />
+     <corners android:radius="28dp" />
+-
+-    <padding
+-        android:bottom="8dp"
+-        android:left="14dp"
+-        android:right="14dp"
+-        android:top="8dp" />
+-
+-</shape>
+\ No newline at end of file
++    <padding android:bottom="8dp" android:left="14dp" android:right="14dp" android:top="8dp" />
++</shape>
+diff --git a/app/src/leanback/res/drawable/shape_item_selected.xml b/app/src/leanback/res/drawable/shape_item_selected.xml
+index 57f07b7..d106dc6 100644
+--- a/app/src/leanback/res/drawable/shape_item_selected.xml
++++ b/app/src/leanback/res/drawable/shape_item_selected.xml
+@@ -1,19 +1,7 @@
+ <?xml version="1.0" encoding="utf-8"?>
+-<shape xmlns:android="http://schemas.android.com/apk/res/android"
+-    android:shape="rectangle">
+-
+-    <solid android:color="@color/black_30" />
+-
+-    <corners android:radius="4dp" />
+-
+-    <padding
+-        android:bottom="8dp"
+-        android:left="12dp"
+-        android:right="12dp"
+-        android:top="8dp" />
+-
+-    <stroke
+-        android:width="1.5dp"
+-        android:color="@color/white" />
+-
+-</shape>
+\ No newline at end of file
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="#2E9BE4D2" />
++    <corners android:radius="10dp" />
++    <padding android:bottom="8dp" android:left="12dp" android:right="12dp" android:top="8dp" />
++    <stroke android:width="2dp" android:color="@color/film_flow_ink" />
++</shape>
+diff --git a/app/src/leanback/res/drawable/shape_video_focused.xml b/app/src/leanback/res/drawable/shape_video_focused.xml
+index 59328d5..160a772 100644
+--- a/app/src/leanback/res/drawable/shape_video_focused.xml
++++ b/app/src/leanback/res/drawable/shape_video_focused.xml
+@@ -1,9 +1,5 @@
+ <?xml version="1.0" encoding="utf-8"?>
+-<shape xmlns:android="http://schemas.android.com/apk/res/android"
+-    android:shape="rectangle">
+-
+-    <stroke
+-        android:width="1.5dp"
+-        android:color="@color/white" />
+-
+-</shape>
+\ No newline at end of file
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <corners android:radius="6dp" />
++    <stroke android:width="2dp" android:color="@color/film_flow_ink" />
++</shape>
+diff --git a/app/src/leanback/res/drawable/shape_video_item_activated.xml b/app/src/leanback/res/drawable/shape_video_item_activated.xml
+index 16a1da9..244966e 100644
+--- a/app/src/leanback/res/drawable/shape_video_item_activated.xml
++++ b/app/src/leanback/res/drawable/shape_video_item_activated.xml
+@@ -1,15 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+-<shape xmlns:android="http://schemas.android.com/apk/res/android"
+-    android:shape="rectangle">
+-
+-    <solid android:color="@color/black_50" />
+-
+-    <corners android:radius="4dp" />
+-
+-    <padding
+-        android:bottom="8dp"
+-        android:left="12dp"
+-        android:right="12dp"
+-        android:top="8dp" />
+-
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="#2E9BE4D2" />
++    <corners android:radius="10dp" />
++    <padding android:bottom="8dp" android:left="12dp" android:right="12dp" android:top="8dp" />
+ </shape>
+diff --git a/app/src/leanback/res/drawable/shape_video_item_focused.xml b/app/src/leanback/res/drawable/shape_video_item_focused.xml
+index a95acda..ecf3f90 100644
+--- a/app/src/leanback/res/drawable/shape_video_item_focused.xml
++++ b/app/src/leanback/res/drawable/shape_video_item_focused.xml
+@@ -1,19 +1,7 @@
+ <?xml version="1.0" encoding="utf-8"?>
+-<shape xmlns:android="http://schemas.android.com/apk/res/android"
+-    android:shape="rectangle">
+-
+-    <solid android:color="@color/black_60" />
+-
+-    <corners android:radius="4dp" />
+-
+-    <padding
+-        android:bottom="8dp"
+-        android:left="12dp"
+-        android:right="12dp"
+-        android:top="8dp" />
+-
+-    <stroke
+-        android:width="1.5dp"
+-        android:color="@color/white" />
+-
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="#24FFFFFF" />
++    <corners android:radius="10dp" />
++    <padding android:bottom="8dp" android:left="12dp" android:right="12dp" android:top="8dp" />
++    <stroke android:width="2dp" android:color="@color/film_flow_ink" />
+ </shape>
+diff --git a/app/src/leanback/res/drawable/shape_video_item_normal.xml b/app/src/leanback/res/drawable/shape_video_item_normal.xml
+index 6ab5ce4..ffd812c 100644
+--- a/app/src/leanback/res/drawable/shape_video_item_normal.xml
++++ b/app/src/leanback/res/drawable/shape_video_item_normal.xml
+@@ -1,15 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+-<shape xmlns:android="http://schemas.android.com/apk/res/android"
+-    android:shape="rectangle">
+-
+-    <solid android:color="@color/black_30" />
+-
+-    <corners android:radius="4dp" />
+-
+-    <padding
+-        android:bottom="8dp"
+-        android:left="12dp"
+-        android:right="12dp"
+-        android:top="8dp" />
+-
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <solid android:color="#12FFFFFF" />
++    <corners android:radius="10dp" />
++    <padding android:bottom="8dp" android:left="12dp" android:right="12dp" android:top="8dp" />
+ </shape>
+diff --git a/app/src/leanback/res/layout/adapter_array.xml b/app/src/leanback/res/layout/adapter_array.xml
+index 9c50bbc..8ede005 100644
+--- a/app/src/leanback/res/layout/adapter_array.xml
++++ b/app/src/leanback/res/layout/adapter_array.xml
+@@ -4,12 +4,15 @@
+     android:id="@+id/text"
+     android:layout_width="wrap_content"
+     android:layout_height="wrap_content"
+-    android:background="@drawable/selector_video_item"
++    android:background="@drawable/film_tab_background"
+     android:focusable="true"
+     android:focusableInTouchMode="true"
+     android:gravity="center"
+     android:nextFocusUp="@id/quality"
+     android:nextFocusDown="@id/episode"
+-    android:textColor="@color/white"
+-    android:textSize="16sp"
++    android:textColor="@color/film_tab_text"
++    android:textSize="14sp"
++    android:minHeight="36dp"
++    android:paddingStart="14dp"
++    android:paddingEnd="14dp"
+     tools:text="11" />
+diff --git a/app/src/leanback/res/layout/adapter_header.xml b/app/src/leanback/res/layout/adapter_header.xml
+index 797a3e0..2be2e6a 100644
+--- a/app/src/leanback/res/layout/adapter_header.xml
++++ b/app/src/leanback/res/layout/adapter_header.xml
+@@ -4,6 +4,11 @@
+     android:id="@+id/text"
+     android:layout_width="wrap_content"
+     android:layout_height="wrap_content"
+-    android:textColor="@color/white"
+-    android:textSize="24sp"
+-    tools:text="@string/home_recommend" />
+\ No newline at end of file
++    android:fontFamily="sans-serif-medium"
++    android:letterSpacing="0.02"
++    android:paddingStart="2dp"
++    android:paddingTop="4dp"
++    android:paddingBottom="10dp"
++    android:textColor="@color/film_flow_ink"
++    android:textSize="19sp"
++    tools:text="@string/home_recommend" />
+diff --git a/app/src/leanback/res/values/film_card.xml b/app/src/leanback/res/values/film_card.xml
+new file mode 100644
+index 0000000..d9dc28c
+--- /dev/null
++++ b/app/src/leanback/res/values/film_card.xml
+@@ -0,0 +1,30 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <style name="FilmCard.Poster" parent="">
++        <item name="cornerFamily">rounded</item>
++        <item name="cornerSize">10dp</item>
++    </style>
++
++    <style name="FilmCard.Chip" parent="">
++        <item name="android:background">@drawable/film_card_chip</item>
++        <item name="android:singleLine">true</item>
++        <item name="android:ellipsize">end</item>
++        <item name="android:textColor">@color/film_flow_ink</item>
++        <item name="android:textSize">12sp</item>
++        <item name="android:fontFamily">sans-serif-medium</item>
++    </style>
++
++    <style name="FilmCard.Title" parent="">
++        <item name="android:duplicateParentState">true</item>
++        <item name="android:ellipsize">marquee</item>
++        <item name="android:singleLine">true</item>
++        <item name="android:gravity">start</item>
++        <item name="android:paddingStart">2dp</item>
++        <item name="android:paddingEnd">2dp</item>
++        <item name="android:paddingTop">8dp</item>
++        <item name="android:paddingBottom">4dp</item>
++        <item name="android:textColor">@color/film_card_title</item>
++        <item name="android:textSize">15sp</item>
++        <item name="android:fontFamily">sans-serif-medium</item>
++    </style>
++</resources>
+diff --git a/app/src/main/java/com/fongmi/android/tv/utils/ImgUtil.java b/app/src/main/java/com/fongmi/android/tv/utils/ImgUtil.java
+index e9d53ae..7d29122 100644
+--- a/app/src/main/java/com/fongmi/android/tv/utils/ImgUtil.java
++++ b/app/src/main/java/com/fongmi/android/tv/utils/ImgUtil.java
+@@ -125,6 +125,7 @@ public class ImgUtil {
+     }
+ 
+     private static Drawable getTextDrawable(String text, boolean vod) {
++        if (vod) return new PosterPlaceholder(text);
+         TextDrawable.Builder builder = new TextDrawable.Builder();
+         text = TextUtils.isEmpty(text) ? "！" : text.substring(0, 1);
+         if (vod) builder.buildRect(text, ColorGenerator.get400(text));
+diff --git a/app/src/main/java/com/fongmi/android/tv/utils/PosterPlaceholder.java b/app/src/main/java/com/fongmi/android/tv/utils/PosterPlaceholder.java
+new file mode 100644
+index 0000000..828df2d
+--- /dev/null
++++ b/app/src/main/java/com/fongmi/android/tv/utils/PosterPlaceholder.java
+@@ -0,0 +1,139 @@
++package com.fongmi.android.tv.utils;
++
++import android.graphics.Canvas;
++import android.graphics.Color;
++import android.graphics.ColorFilter;
++import android.graphics.LinearGradient;
++import android.graphics.Paint;
++import android.graphics.PixelFormat;
++import android.graphics.RadialGradient;
++import android.graphics.Rect;
++import android.graphics.RectF;
++import android.graphics.Shader;
++import android.graphics.Typeface;
++import android.graphics.drawable.Drawable;
++import android.text.Layout;
++import android.text.StaticLayout;
++import android.text.TextPaint;
++import android.text.TextUtils;
++
++import androidx.annotation.NonNull;
++import androidx.annotation.Nullable;
++
++/**
++ * Artwork-free poster frame: a title-tinted dark gradient, a soft key light,
++ * a thin inset frame and the full title set bottom-left. Works at any aspect
++ * ratio, so the same drawable serves portrait cards and landscape heroes.
++ */
++public class PosterPlaceholder extends Drawable {
++
++    private final String title;
++    private final boolean showTitle;
++    private final int base;
++    private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
++    private final Paint light = new Paint(Paint.ANTI_ALIAS_FLAG);
++    private final Paint frame = new Paint(Paint.ANTI_ALIAS_FLAG);
++    private final Paint accent = new Paint(Paint.ANTI_ALIAS_FLAG);
++    private final TextPaint text = new TextPaint(Paint.ANTI_ALIAS_FLAG);
++    private final RectF rect = new RectF();
++    private StaticLayout layout;
++    private int layoutWidth = -1;
++    private int alpha = 255;
++
++    public PosterPlaceholder(@Nullable String title) {
++        this(title, true);
++    }
++
++    public PosterPlaceholder(@Nullable String title, boolean showTitle) {
++        this.title = TextUtils.isEmpty(title) ? "" : title.trim();
++        this.showTitle = showTitle && !this.title.isEmpty();
++        this.base = tint(this.title);
++        frame.setStyle(Paint.Style.STROKE);
++        frame.setColor(0x38FFFFFF);
++        accent.setColor(0xCCFFFFFF);
++        text.setColor(0xFFF5F2EC);
++        text.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
++        text.setShadowLayer(6, 0, 2, 0x66000000);
++    }
++
++    /** Deep, desaturated colour picked deterministically from the title. */
++    private static int tint(String title) {
++        float hue = title.isEmpty() ? 190 : (title.hashCode() & 0x7fffffff) % 360;
++        return Color.HSVToColor(new float[]{hue, 0.42f, 0.34f});
++    }
++
++    @Override
++    protected void onBoundsChange(@NonNull Rect bounds) {
++        int w = bounds.width(), h = bounds.height();
++        if (w <= 0 || h <= 0) return;
++        fill.setShader(new LinearGradient(0, 0, w * 0.35f, h, base, 0xFF0B0E10, Shader.TileMode.CLAMP));
++        light.setShader(new RadialGradient(w * 0.18f, h * 0.12f, Math.max(w, h) * 0.75f, 0x2EFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP));
++        frame.setStrokeWidth(Math.max(1f, Math.min(w, h) * 0.008f));
++        layoutWidth = -1;
++    }
++
++    @Override
++    public void draw(@NonNull Canvas canvas) {
++        Rect b = getBounds();
++        int w = b.width(), h = b.height();
++        if (w <= 0 || h <= 0) return;
++        int save = canvas.save();
++        canvas.translate(b.left, b.top);
++        canvas.drawRect(0, 0, w, h, fill);
++        canvas.drawRect(0, 0, w, h, light);
++        float short_ = Math.min(w, h);
++        float inset = short_ * 0.06f;
++        float radius = short_ * 0.03f;
++        rect.set(inset, inset, w - inset, h - inset);
++        canvas.drawRoundRect(rect, radius, radius, frame);
++        if (showTitle) drawTitle(canvas, w, h, short_, inset);
++        canvas.restoreToCount(save);
++    }
++
++    private void drawTitle(Canvas canvas, int w, int h, float short_, float inset) {
++        float pad = inset + short_ * 0.07f;
++        int width = (int) (w - pad * 2);
++        if (width <= 0) return;
++        if (layout == null || layoutWidth != width) {
++            text.setTextSize(Math.max(10f, short_ * (title.length() > 8 ? 0.12f : 0.15f)));
++            layout = StaticLayout.Builder.obtain(title, 0, title.length(), text, width)
++                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
++                    .setLineSpacing(0, 1.05f)
++                    .setMaxLines(3)
++                    .setEllipsize(TextUtils.TruncateAt.END)
++                    .build();
++            layoutWidth = width;
++        }
++        float top = h - pad - layout.getHeight();
++        float bar = short_ * 0.012f;
++        canvas.drawRect(pad, top - bar * 5, pad + width * 0.22f, top - bar * 4, accent);
++        canvas.save();
++        canvas.translate(pad, top);
++        layout.draw(canvas);
++        canvas.restore();
++    }
++
++    @Override
++    public void setAlpha(int alpha) {
++        this.alpha = alpha;
++        fill.setAlpha(alpha);
++        text.setAlpha(alpha);
++        invalidateSelf();
++    }
++
++    @Override
++    public int getAlpha() {
++        return alpha;
++    }
++
++    @Override
++    public void setColorFilter(@Nullable ColorFilter colorFilter) {
++        fill.setColorFilter(colorFilter);
++        invalidateSelf();
++    }
++
++    @Override
++    public int getOpacity() {
++        return alpha == 255 ? PixelFormat.OPAQUE : PixelFormat.TRANSLUCENT;
++    }
++}
