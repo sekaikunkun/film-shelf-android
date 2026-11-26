@@ -24,10 +24,17 @@ def main():
     modes = parser.add_subparsers(dest="mode", required=True)
     modes.add_parser("device")
     modes.add_parser("start")
+    modes.add_parser("digest", help="report the installed Film Shelf APK digest")
     modes.add_parser("ui")
     modes.add_parser("logs")
     key = modes.add_parser("key")
     key.add_argument("button", choices=KEYS)
+    tap = modes.add_parser("tap", help="tap a verified emulator coordinate")
+    for axis in ("x", "y"):
+        tap.add_argument(axis, type=int)
+    swipe = modes.add_parser("swipe", help="swipe on the verified emulator screen")
+    for axis in ("x1", "y1", "x2", "y2", "duration_ms"):
+        swipe.add_argument(axis, type=int)
     image = modes.add_parser("screen")
     image.add_argument("output", type=Path)
     install = modes.add_parser("install")
@@ -37,6 +44,10 @@ def main():
     if not re.fullmatch(r"emulator-[0-9]{4,5}", args.serial) or not 1024 <= args.port <= 65535 or args.port == 5037:
         parser.error("an explicit emulator serial and loopback server port are required")
 
+    if args.mode in ("tap", "swipe"):
+        points = (args.x, args.y) if args.mode == "tap" else (args.x1, args.y1, args.x2, args.y2)
+        if any(not 0 <= n <= 8191 for n in points) or args.mode == "swipe" and not 100 <= args.duration_ms <= 3000:
+            parser.error("coordinates must be between 0 and 8191; swipe duration 100 to 3000 ms")
     adb = [args.adb, "-H", "127.0.0.1", "-P", str(args.port)]
     env = {k: v for k, v in os.environ.items() if k not in {"ADB_SERVER_SOCKET", "ANDROID_ADB_SERVER_PORT", "ANDROID_SERIAL"}}
 
@@ -64,6 +75,11 @@ def main():
         print(json.dumps({"serial": args.serial, "abi": shell("getprop", "ro.product.cpu.abi"),
                           "api": shell("getprop", "ro.build.version.sdk"),
                           "page_size": shell("getconf", "PAGE_SIZE")}))
+    elif args.mode == "digest":
+        installed = shell("pm", "path", PACKAGE).removeprefix("package:")
+        if not installed.startswith("/data/app/") or not installed.endswith("/base.apk") or "\n" in installed:
+            raise SystemExit("No unique installed Film Shelf base APK")
+        print(shell("sha256sum", installed).split()[0])
     elif args.mode == "install":
         hasher = hashlib.sha256()
         with args.apk.open("rb") as f:
@@ -91,12 +107,17 @@ def main():
         for node in tree.iter("node"):
             if node.get("package") != PACKAGE:
                 continue
-            fields = {k: node.get(k) for k in ("text", "content-desc", "resource-id", "bounds", "focused", "enabled")}
-            if fields["text"] or fields["content-desc"] or fields["focused"] == "true":
+            fields = {k: node.get(k) for k in ("text", "content-desc", "resource-id", "bounds", "focused", "enabled", "selected")}
+            if (fields["text"] or fields["content-desc"] or fields["focused"] == "true"
+                    or (fields["resource-id"] or "").endswith(":id/pager")):
                 print(json.dumps(fields, ensure_ascii=False))
     elif args.mode == "key":
         shell("input", "keyevent", "KEYCODE_DPAD_" + args.button if args.button in KEYS[:5]
               else "KEYCODE_" + args.button)
+    elif args.mode == "tap":
+        shell("input", "tap", str(args.x), str(args.y))
+    elif args.mode == "swipe":
+        shell("input", "swipe", *(str(v) for v in (*points, args.duration_ms)))
     elif args.mode == "screen":
         png = run("exec-out", "screencap", "-p")
         if not png.startswith(b"\x89PNG\r\n\x1a\n"):

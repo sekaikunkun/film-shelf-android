@@ -188,3 +188,21 @@ a different item focused. Do not add a second tap or a D-pad confirmation:
 - Repeat the check for one episode or route chip. With remote input,
   directional keys must move focus and D-pad Center must activate the selected
   action. The video surface and editable inputs retain touch-focus behavior.
+
+## Touch regression: recommendations → category tabs
+
+This replays the steps found during device testing, using the emulator-only bridge above. The exploratory [mobile-agent-testers workflow](https://github.com/pierridotite/mobile-agent-testers) assigns a viewer a test brief and keeps reproducible evidence. This is the local OpenAI adaptation of that workflow, not an invocation of Claude Code, and not the GitHub Actions compile job. It checks the exact installed digest and actually sends touch events. It reports a failed or blocked check separately from a green build.
+
+1. On the isolated emulator, reuse the generated video and start the synthetic fixture as above. Select its `/browse.json` URL as the VOD configuration. Do not use the user's personal devices or sources for this raw bridge.
+2. Install the Android APK you want to check. Each run begins at recommendations with the `Touch Browse Lab` fixture. The fixture exposes two different catalogs with 32 items each; Harbor includes a synthetic filter.
+3. From the repository, run:
+
+```sh
+python3 qa/category-touch-check.py --adb "$ANDROID_HOME/platform-tools/adb" \
+  --port 15084 --serial emulator-5678 --apk-sha256 "$APK_SHA256" \
+  --evidence ./local-category-evidence
+```
+
+It checks entering a category by touch, repeated settled scrolls, a mid-list reversal that must not refresh the page, switching a different tab on one tap, opening and applying a filter on the active tab, and returning to recommendations. `--evidence` is optional, intended only for the named synthetic fixture. Keep evidence out of Git. Restore the emulator's prior source/remove only the test's reverse route afterward. Repeat with a separate evidence directory when comparing APKs. The GitHub build currently runs only the bridge's synthetic unit tests; this replay must be run on a booted emulator to count as UI verification.
+
+First replay (November 26, 2026): the same ARM64 Android 15, 16 KiB emulator and fixture rejected the previous APK (`fef13d2104da…`) at the native category shell and one-tap tab switch checks. Its swipe steps did not reproduce the intermittent physical-tablet issue. The revised exact APK (`8b96672316ef…`) passed all nine checks. Physical Y700 evidence for the scroll fix is separate. This was a local A/B replay, not a remote GitHub workflow or an independent exploratory agent run.

@@ -76,6 +76,19 @@ OVAL_DETAIL = dict(PROGRESS_DETAIL, vod_id="oval-card-episode09", vod_name="Oval
                    style=OVAL_STYLE, vod_play_from="Current",
                    vod_play_url=f"EP09${BASE}/progress-current09.mp4")
 
+BROWSE_SITE = dict(SITE, key="qa-touch-browse", name="Touch Browse Lab", api=BASE + "/browse-api")
+BROWSE_TYPES = [{"type_id": "10", "type_name": "Ember Shelf"},
+                {"type_id": "20", "type_name": "Harbor Shelf"}]
+BROWSE_FILTERS = {"20": [{"key": "genre", "name": "Genre", "value": [{"n": "Any Genre", "v": ""},
+                                                                {"n": "Quiet Only", "v": "quiet"}]}]}
+def browse_rows(tab, genre):
+    label = "Harbor" if tab == "20" else "Ember" if tab == "10" else "Home Lab"
+    if label == "Harbor" and genre == "quiet":
+        label = "Quiet Harbor"
+    return [dict(DETAIL, vod_id=f"browse-{tab}-{genre}-{n:02}", vod_name=f"{label} {n:02}",
+                 vod_pic=BASE + "/qa-cover.png")
+            for n in range(1, 33 if tab else 8)]
+
 FILTER_SITE = dict(SITE, key="qa-filter", name="Category Filter Lab", api=BASE+"/filter-api")
 FILTERS = {"1":[{"key":"genre","name":"Genre","value":[{"n":"Action QA","v":"action"},{"n":"Comedy QA","v":"comedy"}]}]}
 FILTER_DEFAULT = dict(OVAL_DETAIL, vod_id="unfiltered", vod_name="Unfiltered QA", style={"type":"rect","ratio":0.75})
@@ -163,6 +176,13 @@ class Handler(BaseHTTPRequestHandler):
         elif p=="/oval.json": payload={"sites":[OVAL_SITE]}
         elif p=="/oval-api":
             payload={"class":[{"type_id":1,"type_name":"QA"}],"list":[OVAL_DETAIL],"page":1,"pagecount":1,"total":1}
+        elif p=="/browse.json": payload={"sites":[BROWSE_SITE]}
+        elif p=="/browse-api":
+            tab = q.get("t", [""])[0]
+            filters = json.loads(q.get("f", ["{}"])[0])
+            rows = browse_rows(tab, filters.get("genre", ""))
+            payload={"class":BROWSE_TYPES if not tab else [], "filters":BROWSE_FILTERS,
+                     "list":rows,"page":1,"pagecount":1,"total":len(rows)}
         elif p=="/filter.json": payload={"sites":[FILTER_SITE]}
         elif p=="/filter-api":
             selected = json.loads(q.get("f", ["{}"])[0]).get("genre")

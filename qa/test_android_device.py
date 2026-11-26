@@ -26,13 +26,16 @@ if args[6] == 'shell' and tuple(args[7:]) in props:
 elif args[6:] == ['shell', 'am', 'start', '-W', '-n',
                   'io.github.sekaikunkun.filmshelf/com.fongmi.android.tv.ui.activity.HomeActivity']:
     print('Status: ok')
+elif args[6:] in (['shell', 'input', 'tap', '180', '240'],
+                  ['shell', 'input', 'swipe', '180', '720', '180', '320', '620']):
+    print('gesture sent')
 else:
     raise RuntimeError('unexpected ADB command')
 """
 
 
 class DeviceBridgeTest(unittest.TestCase):
-    def run_bridge(self, devices, qemu="1", serial="emulator-5678", port="15084", mode="device"):
+    def run_bridge(self, devices, qemu="1", serial="emulator-5678", port="15084", mode="device", params=()):
         with tempfile.TemporaryDirectory() as scratch:
             adb = Path(scratch) / "adb"
             adb.write_text(FAKE_ADB, encoding="utf-8")
@@ -40,7 +43,7 @@ class DeviceBridgeTest(unittest.TestCase):
             env = dict(os.environ, FAKE_DEVICES=devices, FAKE_IS_EMULATOR=qemu,
                        ANDROID_SERIAL="not-this-device", ADB_SERVER_SOCKET="not-this-server")
             return subprocess.run([sys.executable, str(Path(__file__).with_name("android-device.py")),
-                                   "--adb", str(adb), "--port", port, "--serial", serial, mode],
+                                   "--adb", str(adb), "--port", port, "--serial", serial, mode, *params],
                                   env=env, capture_output=True, text=True, timeout=10)
 
     def test_probes_only_explicit_emulator(self):
@@ -71,3 +74,15 @@ class DeviceBridgeTest(unittest.TestCase):
         result = self.run_bridge("emulator-5678\tdevice", mode="start")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Status: ok", result.stdout)
+
+
+    def test_touch_gestures_only_on_verified_emulator(self):
+        for mode, params in (("tap", ("180", "240")),
+                             ("swipe", ("180", "720", "180", "320", "620"))):
+            with self.subTest(mode=mode):
+                self.assertEqual(self.run_bridge("emulator-5678\tdevice", mode=mode, params=params).returncode, 0)
+                self.assertNotEqual(self.run_bridge("emulator-5678\tdevice\nUSB123\tdevice", mode=mode, params=params).returncode, 0)
+
+    def test_rejects_invalid_gesture_coordinates_or_duration(self):
+        for mode, params in (("tap", ("-1", "10")), ("swipe", ("180", "720", "180", "320", "0"))):
+            self.assertEqual(self.run_bridge("", mode=mode, params=params).returncode, 2)
