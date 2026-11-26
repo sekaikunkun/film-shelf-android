@@ -69,9 +69,10 @@ index 799122e..f11f471 100644
              android:launchMode="singleTop"
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java
 new file mode 100644
+index 0000000..12c8432
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyDirectRouteScan.java
-@@ -0,0 +1,320 @@
+@@ -0,0 +1,394 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import android.content.Context;
@@ -80,6 +81,7 @@ new file mode 100644
 +
 +import androidx.media3.common.C;
 +import androidx.media3.common.MediaItem;
++import androidx.media3.common.MimeTypes;
 +import androidx.media3.common.PlaybackException;
 +import androidx.media3.common.Player;
 +import androidx.media3.common.util.UnstableApi;
@@ -100,6 +102,8 @@ new file mode 100644
 +import java.util.ArrayList;
 +import java.util.Collections;
 +import java.util.List;
++import java.util.Locale;
++import java.util.Map;
 +import java.util.concurrent.ExecutorService;
 +import java.util.concurrent.Executors;
 +import java.util.concurrent.TimeUnit;
@@ -107,6 +111,7 @@ new file mode 100644
 +
 +import okhttp3.Call;
 +import okhttp3.HttpUrl;
++import okhttp3.FormBody;
 +import okhttp3.OkHttpClient;
 +import okhttp3.Request;
 +import okhttp3.Response;
@@ -118,6 +123,7 @@ new file mode 100644
 +    private static final long ROUTE_MILLIS = 6500;
 +    record Candidate(Vod vod, Site site) {}
 +    record Route(String flag, String episode, String url) {}
++    private record Media(String url, String mime, Map<String, String> headers) {}
 +    record Outcome(Candidate candidate, Route playable, boolean attempted, boolean loginRequired) {}
 +    private static final class LoginRequired extends IOException {}
 +    interface Listener {
@@ -135,6 +141,7 @@ new file mode 100644
 +    private final List<Candidate> sources;
 +    private final Listener listener;
 +    private final LocalListener local;
++    private final Site localSite;
 +    private final List<LocalOutcome> localOutcomes = new ArrayList<>();
 +    private final List<Outcome> outcomes = new ArrayList<>();
 +    private final Handler main = new Handler(Looper.getMainLooper());
@@ -158,13 +165,15 @@ new file mode 100644
 +        this.sources = List.copyOf(sources);
 +        this.listener = listener;
 +        this.local = null;
++        this.localSite = null;
 +    }
 +
-+    FamilyDirectRouteScan(Context context, List<Route> routes, LocalListener listener) {
++    FamilyDirectRouteScan(Context context, Site site, List<Route> routes, LocalListener listener) {
 +        this.context = context.getApplicationContext();
 +        this.sources = Collections.emptyList();
 +        this.listener = null;
 +        this.local = listener;
++        this.localSite = site;
 +        this.routes = List.copyOf(routes);
 +    }
 +
@@ -282,7 +291,7 @@ new file mode 100644
 +            int index = firstEpisode(episodes);
 +            if (index < 0) continue;
 +            Episode first = episodes.get(index);
-+            if (FamilyRouteProbePolicy.directMedia(first.getUrl())) {
++            if (FamilyRouteProbePolicy.canRequest(candidate.site().getType(), first.getUrl())) {
 +                found.add(new Route(flag.getFlag(), first.getName(), first.getUrl()));
 +                if (found.size() == FamilyRouteProbePolicy.ROUTE_LIMIT) break;
 +            }
@@ -293,15 +302,61 @@ new file mode 100644
 +    private Vod loadExactDetail(Candidate candidate) throws IOException {
 +        Site site = candidate.site();
 +        int type = site.getType();
-+        if (!FamilyRouteProbePolicy.plainCatalog(type, !site.getExt().isEmpty(), !site.getHeader().isEmpty(), !site.getPlayUrl().isEmpty()))
-+            return null;
-+        HttpUrl api = HttpUrl.parse(site.getApi());
++        if (!FamilyRouteProbePolicy.supportsProbe(type, !site.getPlayUrl().isEmpty())) return null;
 +        String requested = candidate.vod().getId();
-+        if (requested.isEmpty() || api == null || !api.username().isEmpty() || !api.password().isEmpty())
-+            return null;
-+        HttpUrl url = api.newBuilder().setQueryParameter("ac", type == 0 ? "videolist" : "detail")
-+                .setQueryParameter("ids", requested).build();
-+        Call request = http.newCall(new Request.Builder().url(url).build());
++        if (requested.isBlank()) return null;
++        Result result = request(site, Map.of("ac", type == 0 ? "videolist" : "detail", "ids", requested));
++        Vod exact = result == null ? null : DetailIdentity.find(requested, result.getList(), Vod::getId);
++        return exact == null ? null : exact.setFlags();
++    }
++
++    // Do not use SiteApi.playerContent here: it stops the shared Source and can
++    // launch extractors or interactive authorization while another line plays.
++    private Media resolve(Site site, Route route) throws IOException {
++        int type = site.getType();
++        if (!FamilyRouteProbePolicy.canRequest(type, route.url())) return null;
++        if (type != 4) return direct(route.url(), null, site.getHeader());
++        Result response = request(site, Map.of("play", route.url(), "flag", route.flag()));
++        if (response == null || response.getCode() != 0 || response.needParse()
++                || response.shouldUseParse() || !response.getClick().isEmpty()
++                || !response.getPlayUrl().isEmpty() || response.getDrm() != null
++                || response.getUrl().isEmpty()) return null;
++        return direct(response.getUrl().v(), response.getFormat(),
++                response.getHeader().isEmpty() ? site.getHeader() : response.getHeader());
++    }
++
++    private Media direct(String url, String format, Map<String, String> headers) {
++        if (!FamilyRouteProbePolicy.httpMedia(url)) return null;
++        // The HTTP data source can reuse request headers on redirects/segments.
++        // Leave credentialed/custom-header media manual rather than forwarding secrets.
++        for (String name : headers.keySet()) {
++            if (!List.of("user-agent", "referer", "origin", "accept").contains(name.toLowerCase(Locale.ROOT))) return null;
++        }
++        String mime = format == null ? "" : format.toLowerCase(Locale.ROOT);
++        if (mime.equals("m3u8") || mime.equals("application/x-mpegurl")
++                || mime.equals("application/vnd.apple.mpegurl")) mime = MimeTypes.APPLICATION_M3U8;
++        else if (mime.equals("mpd") || mime.equals("application/dash+xml")) mime = MimeTypes.APPLICATION_MPD;
++        else mime = null; // Container inference also handles extensionless MP4.
++        return new Media(url, mime, Map.copyOf(headers));
++    }
++
++    private Result request(Site site, Map<String, String> parameters) throws IOException {
++        HttpUrl api = HttpUrl.parse(site.getApi());
++        if (api == null || !api.username().isEmpty() || !api.password().isEmpty()) return null;
++        Request.Builder builder = new Request.Builder();
++        for (var header : site.getHeader().entrySet()) builder.header(header.getKey(), header.getValue());
++        String extension = site.getExt();
++        if (extension.length() > 1000) {
++            FormBody.Builder form = new FormBody.Builder().add("extend", extension);
++            parameters.forEach(form::add);
++            builder.url(api).post(form.build());
++        } else {
++            HttpUrl.Builder url = api.newBuilder();
++            if (!extension.isEmpty()) url.setQueryParameter("extend", extension);
++            parameters.forEach(url::setQueryParameter);
++            builder.url(url.build());
++        }
++        Call request = http.newCall(builder.build());
 +        call = request;
 +        if (worker.isShutdown()) { request.cancel(); return null; }
 +        try (Response response = request.execute()) {
@@ -310,9 +365,10 @@ new file mode 100644
 +            if (!response.isSuccessful() || response.body() == null) return null;
 +            BufferedSource body = response.body().source();
 +            if (body.request(DETAIL_BYTES + 1)) return null;
-+            Result result = Result.fromType(type, body.readUtf8());
-+            Vod exact = DetailIdentity.find(requested, result.getList(), Vod::getId);
-+            return exact == null ? null : exact.setFlags();
++            Result result = Result.fromType(site.getType(), body.readUtf8());
++            if (FamilyPlaybackWait.classifyFailure(result.getMsg()) == FamilyPlaybackWait.Failure.LOGIN)
++                throw new LoginRequired();
++            return result;
 +        } finally {
 +            call = null;
 +        }
@@ -332,10 +388,29 @@ new file mode 100644
 +        Route route = routes.get(routeIndex++);
 +        if (local != null) local.progress(routeIndex - 1, routes.size(), route.flag());
 +        int version = ++probeVersion;
++        Site site = local == null ? sources.get(sourceIndex).site() : localSite;
++        worker.execute(() -> {
++            Media resolved = null;
++            FamilyRouteProbePolicy.ProbeResult failure = FamilyRouteProbePolicy.ProbeResult.UNVERIFIED;
++            try { resolved = resolve(site, route); }
++            catch (LoginRequired ignored) { failure = FamilyRouteProbePolicy.ProbeResult.LOGIN_REQUIRED; }
++            catch (IOException | RuntimeException ignored) { }
++            Media media = resolved;
++            FamilyRouteProbePolicy.ProbeResult outcome = failure;
++            main.post(() -> {
++                if (!active || version != probeVersion) return;
++                if (media == null) finishRoute(outcome);
++                else startProbe(media, version);
++            });
++        });
++    }
++
++    private void startProbe(Media media, int version) {
 +        try {
 +            surface = PlaceholderSurface.newInstance(context, false);
 +            DefaultHttpDataSource.Factory data = new DefaultHttpDataSource.Factory()
-+                    .setConnectTimeoutMs(3500).setReadTimeoutMs(3500);
++                    .setConnectTimeoutMs(3500).setReadTimeoutMs(3500)
++                    .setDefaultRequestProperties(media.headers());
 +            probe = new ExoPlayer.Builder(context)
 +                    .setMediaSourceFactory(new DefaultMediaSourceFactory(data)).build();
 +            probe.setTrackSelectionParameters(probe.getTrackSelectionParameters().buildUpon()
@@ -355,7 +430,7 @@ new file mode 100644
 +                }
 +            });
 +            probe.setVideoSurface(surface);
-+            probe.setMediaItem(MediaItem.fromUri(route.url()));
++            probe.setMediaItem(new MediaItem.Builder().setUri(media.url()).setMimeType(media.mime()).build());
 +            probe.prepare();
 +            probe.play();
 +            timeout = () -> { if (active && version == probeVersion) finishRoute(FamilyRouteProbePolicy.ProbeResult.UNVERIFIED); };
@@ -465,9 +540,10 @@ new file mode 100644
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java
 new file mode 100644
+index 0000000..574d761
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicy.java
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,160 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import java.net.URI;
@@ -481,6 +557,7 @@ new file mode 100644
 +    static final int ROUTE_LIMIT = 3;
 +    static final int LOCAL_ROUTE_LIMIT = 6;
 +    private static final Pattern EPISODE_NUMBER = Pattern.compile("(?:episode|ep\\.?|e|第)?\\s*0*([0-9]{1,4})\\s*(?:集|话|話)?");
++    private static final Pattern CHINESE_EPISODE = Pattern.compile("第?\\s*([零〇一二两兩三四五六七八九十]{1,3})\\s*[集话話]");
 +    static final int MIN_ADVANCE_MS = 350;
 +
 +    enum LocalStatus { PROBE, MANUAL_ONLY, LIMIT_REACHED, NO_MATCH, PLAYABLE, LOGIN_REQUIRED, UNVERIFIED }
@@ -498,9 +575,9 @@ new file mode 100644
 +        };
 +    }
 +
-+    static LocalStatus localStatus(boolean matched, boolean plain, String url, int scheduled) {
++    static LocalStatus localStatus(boolean matched, boolean supported, int type, String url, int scheduled) {
 +        if (!matched) return LocalStatus.NO_MATCH;
-+        if (!plain || !directMedia(url)) return LocalStatus.MANUAL_ONLY;
++        if (!supported || !canRequest(type, url)) return LocalStatus.MANUAL_ONLY;
 +        return scheduled < LOCAL_ROUTE_LIMIT ? LocalStatus.PROBE : LocalStatus.LIMIT_REACHED;
 +    }
 +
@@ -563,21 +640,52 @@ new file mode 100644
 +
 +    private static int episodeNumber(String label) {
 +        var match = EPISODE_NUMBER.matcher(label);
-+        return match.matches() ? Integer.parseInt(match.group(1)) : -1;
++        if (match.matches()) return Integer.parseInt(match.group(1));
++        var chinese = CHINESE_EPISODE.matcher(label);
++        if (!chinese.matches()) return -1;
++        String number = chinese.group(1);
++        int ten = number.indexOf('十');
++        if (ten < 0) return number.length() == 1 ? digit(number.charAt(0)) : -1;
++        if (ten > 1 || number.length() - ten > 2 || number.lastIndexOf('十') != ten) return -1;
++        int prefix = ten == 0 ? 1 : digit(number.charAt(0));
++        int suffix = number.length() == ten + 1 ? 0 : digit(number.charAt(ten + 1));
++        return prefix > 0 && (number.length() == ten + 1 || suffix > 0) ? prefix * 10 + suffix : -1;
 +    }
 +
-+    static boolean directMedia(String raw) {
-+        if (raw == null || raw.length() > 4096) return false;
++    private static int digit(char value) {
++        if (value == '两' || value == '兩') return 2;
++        if (value == '〇') return 0;
++        return "零一二三四五六七八九".indexOf(value);
++    }
++
++    static boolean supportsProbe(int type, boolean hasPlayUrl) {
++        return !hasPlayUrl && (type == 0 || type == 1 || type == 4);
++    }
++
++    static boolean canRequest(int type, String value) {
++        return type == 4 ? value != null && !value.isBlank() && value.length() <= 4096 : directMedia(value);
++    }
++
++    static boolean httpMedia(String raw) {
++        return mediaUri(raw) != null;
++    }
++
++    private static URI mediaUri(String raw) {
++        if (raw == null || raw.length() > 4096) return null;
 +        try {
 +            URI url = URI.create(raw);
 +            String scheme = url.getScheme();
-+            String path = url.getPath();
 +            return ("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))
-+                    && url.getHost() != null && url.getUserInfo() == null && path != null
-+                    && path.toLowerCase(Locale.ROOT).matches(".*[.](mp4|m4v|webm|mkv|m3u8|mpd|ts)$");
++                    && url.getHost() != null && url.getUserInfo() == null ? url : null;
 +        } catch (IllegalArgumentException ignored) {
-+            return false;
++            return null;
 +        }
++    }
++
++    static boolean directMedia(String raw) {
++        URI url = mediaUri(raw);
++        return url != null && url.getPath() != null
++                && url.getPath().toLowerCase(Locale.ROOT).matches(".*[.](mp4|m4v|webm|mkv|m3u8|mpd|ts)$");
 +    }
 +
 +    // Only explicit permanent media removal may trigger unattended retries.
@@ -1122,7 +1230,7 @@ index 4a19e31..cc660de 100644
          mBinding.progressLayout.showProgress();
      }
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
-index 5a1e119..2eeb4aa 100644
+index 5a1e119..9d0947c 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 @@ -587,6 +587,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
@@ -1195,7 +1303,7 @@ index 5a1e119..2eeb4aa 100644
          checkKeepImg();
          setText(item);
          updateKeep();
-@@ -1178,7 +1201,398 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1178,7 +1201,413 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          };
      }
  
@@ -1255,8 +1363,7 @@ index 5a1e119..2eeb4aa 100644
 +        if (!familyResumed || isFinishing() || isDestroyed() || familyLoginWait
 +                || mFlagAdapter.getItemCount() < 2 || mEpisodeAdapter.getItemCount() == 0) return;
 +        Site site = getSite();
-+        boolean plain = FamilyRouteProbePolicy.plainCatalog(site.getType(), !site.getExt().isEmpty(),
-+                !site.getHeader().isEmpty(), !site.getPlayUrl().isEmpty());
++        boolean supported = FamilyRouteProbePolicy.supportsProbe(site.getType(), !site.getPlayUrl().isEmpty());
 +        String sourceKey = getKey();
 +        String vodId = getId();
 +        Episode current = getEpisode();
@@ -1271,7 +1378,7 @@ index 5a1e119..2eeb4aa 100644
 +                    episodes.stream().map(Episode::getName).collect(java.util.stream.Collectors.toList()));
 +            Episode target = index < 0 ? null : episodes.get(index);
 +            FamilyRouteProbePolicy.LocalStatus status = FamilyRouteProbePolicy.localStatus(
-+                    target != null, plain, target == null ? null : target.getUrl(), routes.size());
++                    target != null, supported, site.getType(), target == null ? null : target.getUrl(), routes.size());
 +            lines.add(new FamilyLocalLine(flag, target, status));
 +            if (status == FamilyRouteProbePolicy.LocalStatus.PROBE)
 +                routes.add(new FamilyDirectRouteScan.Route(flag.getFlag(), target.getName(), target.getUrl()));
@@ -1282,7 +1389,7 @@ index 5a1e119..2eeb4aa 100644
 +            return;
 +        }
 +        AlertDialog progress = newFamilyScanProgress(getString(R.string.family_scan_episode_title, episodeName), false);
-+        familyScan = new FamilyDirectRouteScan(this, routes, new FamilyDirectRouteScan.LocalListener() {
++        familyScan = new FamilyDirectRouteScan(this, site, routes, new FamilyDirectRouteScan.LocalListener() {
 +            @Override public void progress(int done, int total, String route) {
 +                updateFamilyScanProgress(progress, done, total, route);
 +            }
@@ -1312,7 +1419,15 @@ index 5a1e119..2eeb4aa 100644
 +
 +    private void showFamilyLocalResults(List<FamilyLocalLine> lines, Episode current,
 +                                        Flag currentFlag, String sourceKey, String vodId) {
-+        CharSequence[] rows = lines.stream().map(line -> line.flag().getFlag() + "  ·  " + switch (line.status()) {
++        // Show the options that can actually start this episode first.
++        List<FamilyLocalLine> ordered = new ArrayList<>(lines);
++        ordered.sort(java.util.Comparator.comparingInt(line -> switch (line.status()) {
++            case PLAYABLE -> 0;
++            case UNVERIFIED, MANUAL_ONLY, PROBE, LIMIT_REACHED -> 1;
++            case LOGIN_REQUIRED -> 2;
++            case NO_MATCH -> 3;
++        }));
++        CharSequence[] rows = ordered.stream().map(line -> line.flag().getFlag() + "  ·  " + switch (line.status()) {
 +            case PLAYABLE -> "已确认可播";
 +            case MANUAL_ONLY -> "无法自动验证，可手动试播";
 +            case LIMIT_REACHED, PROBE -> "未检测，可手动试播";
@@ -1322,14 +1437,19 @@ index 5a1e119..2eeb4aa 100644
 +        }).toArray(CharSequence[]::new);
 +        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
 +                .setTitle("本集线路 · " + current.getName())
-+                .setItems(rows, null).setNegativeButton("返回", null).create();
++                .setItems(rows, null)
++                .setNeutralButton(R.string.film_scan_other, (unused, which) -> {
++                    cancelFamilyScan();
++                    if (isSameFamilyLocalPlayback(current, currentFlag, sourceKey, vodId)) openFamilyCrossSearch();
++                })
++                .setNegativeButton("返回", null).create();
 +        familyScanDialog = dialog;
 +        dialog.setOnDismissListener(dismissed -> {
 +            if (familyScanDialog == dialog) familyScanDialog = null;
 +        });
 +        dialog.show();
 +        dialog.getListView().setOnItemClickListener((parent, view, position, id) -> {
-+            FamilyLocalLine line = lines.get(position);
++            FamilyLocalLine line = ordered.get(position);
 +            if (!FamilyRouteProbePolicy.canSelect(line.status())) return;
 +            cancelFamilyScan();
 +            if (!isSameFamilyLocalPlayback(current, currentFlag, sourceKey, vodId)) {
@@ -1383,10 +1503,13 @@ index 5a1e119..2eeb4aa 100644
 +    }
 +
 +    private void showFamilyScanResults(List<FamilyDirectRouteScan.Outcome> results, String previousEpisode) {
-+        CharSequence[] rows = results.stream().map(outcome -> outcome.candidate().vod().getSiteName()
++        List<FamilyDirectRouteScan.Outcome> ordered = new ArrayList<>(results);
++        ordered.sort(java.util.Comparator.comparingInt(outcome -> outcome.playable() != null ? 0
++                : outcome.loginRequired() ? 2 : 1));
++        CharSequence[] rows = ordered.stream().map(outcome -> outcome.candidate().vod().getSiteName()
 +                + "  ·  " + (outcome.playable() != null ? "可播，从 " + outcome.playable().episode() + " 开始"
-+                : outcome.loginRequired() ? getString(R.string.family_scan_login_required)
-+                : outcome.attempted() ? "未确认起播集可播" : "无法自动确认起播集")).toArray(CharSequence[]::new);
++                : outcome.loginRequired() ? getString(R.string.family_scan_login_manual)
++                : getString(R.string.family_scan_unverified_manual))).toArray(CharSequence[]::new);
 +        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
 +                .setTitle(previousEpisode.isEmpty() ? "检测结果" : "检测结果 · 原集数 " + previousEpisode)
 +                .setItems(rows, null).setNegativeButton("返回", null).create();
@@ -1396,9 +1519,9 @@ index 5a1e119..2eeb4aa 100644
 +        });
 +        dialog.show();
 +        dialog.getListView().setOnItemClickListener((parent, view, position, id) -> {
-+            FamilyDirectRouteScan.Outcome outcome = results.get(position);
-+            if (outcome.playable() == null) return;
-+            revalidateFamilySwitch(outcome);
++            FamilyDirectRouteScan.Outcome outcome = ordered.get(position);
++            if (outcome.playable() == null) onItemClick(outcome.candidate().vod());
++            else revalidateFamilySwitch(outcome);
 +        });
 +    }
 +
@@ -1594,7 +1717,7 @@ index 5a1e119..2eeb4aa 100644
          mBinding.widget.title.setText(getString(R.string.detail_title, mBinding.name.getText(), episode.getName()));
          playerStartTime = System.currentTimeMillis();
          beginPlayHealth();
-@@ -1203,11 +1617,21 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1203,11 +1632,21 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          SpiderDebug.log("video-flow", "player content request dispatch cost=%dms", System.currentTimeMillis() - step);
          mBinding.widget.title.setSelected(true);
          updateHistory(episode);
@@ -1616,7 +1739,7 @@ index 5a1e119..2eeb4aa 100644
          SpiderDebug.log("video-flow", "player finish cost=%dms useParse=%s multi=%s msg=%s", System.currentTimeMillis() - playerStartTime, result.shouldUseParse(), result.getUrl().isMulti(), result.getMsg());
          if (service() == null) {
              mPendingPlayer = result;
-@@ -1257,6 +1681,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1257,6 +1696,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      public void onItemClick(Flag item) {
@@ -1627,7 +1750,7 @@ index 5a1e119..2eeb4aa 100644
          if (isFinishing() || isDestroyed() || mFlagAdapter.getItemCount() == 0 || item.isSelected()) return;
          int oldPosition = mFlagAdapter.getSelectedPosition();
          mFlagAdapter.setSelected(item);
-@@ -1265,7 +1693,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1265,7 +1708,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          notifyItemsChanged(mBinding.flag, mFlagAdapter, oldPosition, newPosition);
          setEpisodeAdapter(item.getEpisodes());
          setQualityVisible(false);
@@ -1637,7 +1760,7 @@ index 5a1e119..2eeb4aa 100644
      }
  
      private void setEpisodeAdapter(List<Episode> items) {
-@@ -1274,8 +1703,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1274,8 +1718,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      private void setEpisodeAdapter(List<Episode> items, boolean scrollToCurrent) {
          mBinding.control.action.episodes.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
@@ -1648,7 +1771,7 @@ index 5a1e119..2eeb4aa 100644
          boolean audioList = isMusicLike();
          if (audioList) restoreAudioEpisodeDisplayNames(items);
          int column = audioList ? 1 : EpisodeAdapter.getColumn(items);
-@@ -1396,7 +1827,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1396,7 +1842,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      private int getEpisodeWindowHeight() {
          int column = Math.max(1, mEpisodeAdapter.getColumn());
          int totalRows = Math.max(1, (mEpisodeAdapter.getItemCount() + column - 1) / column);
@@ -1658,7 +1781,7 @@ index 5a1e119..2eeb4aa 100644
          int spacing = mBinding.episode.getVerticalSpacing();
          int maxRows = getEpisodeMaxRows(rowHeight, spacing);
          int rows = Math.min(totalRows, maxRows);
-@@ -1532,9 +1964,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -1532,9 +1979,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
              mBinding.video.setForeground(ResUtil.getDrawable(R.drawable.selector_video));
              mBinding.video.setLayoutParams(mFrameParams);
          }
@@ -1669,7 +1792,7 @@ index 5a1e119..2eeb4aa 100644
          mFocus2 = null;
          hideInfo();
      }
-@@ -2471,7 +2903,23 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -2471,7 +2918,23 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void onChange() {
@@ -1694,7 +1817,7 @@ index 5a1e119..2eeb4aa 100644
      }
  
      private void onFullscreen() {
-@@ -3640,11 +4088,37 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -3640,11 +4103,37 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void checkFlag(Vod item) {
@@ -1733,7 +1856,7 @@ index 5a1e119..2eeb4aa 100644
              onItemClick(mHistory.getFlag());
              if (mHistory.isRevSort()) reverseEpisode(true);
          }
-@@ -3997,6 +4471,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -3997,6 +4486,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          mBinding.director.setVisibility(visible && !TextUtils.isEmpty(mBinding.director.getText()) ? View.VISIBLE : View.GONE);
          mBinding.actor.setVisibility(visible && !TextUtils.isEmpty(mBinding.actor.getText()) ? View.VISIBLE : View.GONE);
          mBinding.row2.setVisibility(value);
@@ -1741,7 +1864,7 @@ index 5a1e119..2eeb4aa 100644
          mBinding.scroll.setVisibility(value);
      }
  
-@@ -5460,6 +5935,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5460,6 +5950,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      protected void onError(String msg) {
@@ -1760,7 +1883,7 @@ index 5a1e119..2eeb4aa 100644
          recordPlayHealth(false, msg);
          Track.delete(player().getKey());
          mClock.setCallback(null);
-@@ -5469,7 +5956,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5469,7 +5971,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          player().reset();
          player().stop();
          showError(msg);
@@ -1768,7 +1891,7 @@ index 5a1e119..2eeb4aa 100644
      }
  
      @Override
-@@ -5492,9 +5978,16 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5492,9 +5993,16 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      protected void onStateChanged(int state) {
          switch (state) {
              case Player.STATE_BUFFERING:
@@ -1785,7 +1908,7 @@ index 5a1e119..2eeb4aa 100644
                  mKaraokeResultShown = false;
                  recordPlayHealth(true, "");
                  hideProgress();
-@@ -5502,6 +5995,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5502,6 +6010,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                  player().reset();
                  break;
              case Player.STATE_ENDED:
@@ -1793,7 +1916,7 @@ index 5a1e119..2eeb4aa 100644
                  checkEnded(true);
                  break;
          }
-@@ -5665,14 +6159,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5665,14 +6174,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      private void checkFlag() {
          int position = isGone(mBinding.flag) ? -1 : mFlagAdapter.getPosition();
@@ -1817,7 +1940,7 @@ index 5a1e119..2eeb4aa 100644
      }
  
      private void initSearch(String keyword, boolean auto) {
-@@ -5730,7 +6229,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5730,7 +6244,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
              mQuickSearchDialog.addAll(items);
              return;
          }
@@ -1826,7 +1949,7 @@ index 5a1e119..2eeb4aa 100644
          dialog.dismissListener(d -> {
              if (mQuickSearchDialog != dialog) return;
              mQuickSearchDialog = null;
-@@ -5748,14 +6247,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5748,14 +6262,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      public void onItemClick(Vod item) {
@@ -1846,7 +1969,7 @@ index 5a1e119..2eeb4aa 100644
          String keyword = Objects.toString(mBinding.part.getTag(), "");
          if (isAutoMode()) return !item.getName().equals(keyword);
          else return !item.getName().contains(keyword);
-@@ -5779,7 +6281,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5779,7 +6296,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          Vod item = mQuickAdapter.get(position);
          Notify.show(getString(R.string.play_switch_site, item.getSiteName()));
          mQuickAdapter.remove(position);
@@ -1855,7 +1978,7 @@ index 5a1e119..2eeb4aa 100644
          setInitAuto(false);
          applySearchArtwork(item);
          getDetail(item);
-@@ -5811,6 +6313,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -5811,6 +6328,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      private void setFullscreen(boolean fullscreen) {
          this.fullscreen = fullscreen;
@@ -1864,7 +1987,7 @@ index 5a1e119..2eeb4aa 100644
          mBinding.control.action.fullscreen.setVisibility(fullscreen ? View.GONE : View.VISIBLE);
          mBinding.control.action.fullscreen.setText(R.string.play_fullscreen);
          applyActionButtonVisibility();
-@@ -6323,6 +6827,22 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6323,6 +6842,22 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          if (service() != null) refreshLyrics();
      }
  
@@ -1887,7 +2010,7 @@ index 5a1e119..2eeb4aa 100644
      @Override
      protected void onStop() {
          super.onStop();
-@@ -6354,6 +6874,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6354,6 +6889,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void finishVideoPlaybackNow() {
@@ -1895,7 +2018,7 @@ index 5a1e119..2eeb4aa 100644
          mViewModel.stopSearch();
          saveHistory(true);
          markPlaybackExiting();
-@@ -6364,6 +6885,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+@@ -6364,6 +6900,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      protected void onDestroy() {
@@ -2954,9 +3077,10 @@ index 577e025..93bcc3c 100644
          android:layout_height="0dp"
 diff --git a/app/src/leanback/res/values/family_port.xml b/app/src/leanback/res/values/family_port.xml
 new file mode 100644
+index 0000000..1964b6a
 --- /dev/null
 +++ b/app/src/leanback/res/values/family_port.xml
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,33 @@
 +<resources>
 +    <string name="family_advanced">高级设置</string>
 +    <string name="family_common">常用设置</string>
@@ -2987,6 +3111,8 @@ new file mode 100644
 +    <string name="family_scan_unnamed">未命名</string>
 +    <string name="family_scan_cancel">取消</string>
 +    <string name="family_scan_login_required">需登录或授权，未验证</string>
++    <string name="family_scan_login_manual">需登录或授权，可手动打开</string>
++    <string name="family_scan_unverified_manual">未验证，可手动打开</string>
 +</resources>
 diff --git a/app/src/leanback/res/values/styles.xml b/app/src/leanback/res/values/styles.xml
 index 3a6c5f3..e065eca 100644
@@ -3532,9 +3658,10 @@ new file mode 100644
 +}
 diff --git a/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java
 new file mode 100644
+index 0000000..936adbe
 --- /dev/null
 +++ b/app/src/test/java/com/fongmi/android/tv/ui/activity/FamilyRouteProbePolicyTest.java
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,144 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import com.fongmi.android.tv.bean.DetailIdentity;
@@ -3601,12 +3728,31 @@ new file mode 100644
 +
 +    @Test public void matchesStayVisibleEvenWhenTheyCannotBeProbed() {
 +        String url = "https://example.com/episode09.m3u8";
-+        assertEquals(FamilyRouteProbePolicy.LocalStatus.PROBE, FamilyRouteProbePolicy.localStatus(true, true, url, 0));
-+        assertEquals(FamilyRouteProbePolicy.LocalStatus.MANUAL_ONLY, FamilyRouteProbePolicy.localStatus(true, false, url, 0));
-+        assertEquals(FamilyRouteProbePolicy.LocalStatus.MANUAL_ONLY, FamilyRouteProbePolicy.localStatus(true, true, "opaque-id", 0));
++        assertEquals(FamilyRouteProbePolicy.LocalStatus.PROBE, FamilyRouteProbePolicy.localStatus(true, true, 1, url, 0));
++        assertEquals(FamilyRouteProbePolicy.LocalStatus.MANUAL_ONLY, FamilyRouteProbePolicy.localStatus(true, false, 3, url, 0));
++        assertEquals(FamilyRouteProbePolicy.LocalStatus.MANUAL_ONLY, FamilyRouteProbePolicy.localStatus(true, true, 1, "opaque-id", 0));
 +        assertEquals(FamilyRouteProbePolicy.LocalStatus.LIMIT_REACHED,
-+                FamilyRouteProbePolicy.localStatus(true, true, url, FamilyRouteProbePolicy.LOCAL_ROUTE_LIMIT));
-+        assertEquals(FamilyRouteProbePolicy.LocalStatus.NO_MATCH, FamilyRouteProbePolicy.localStatus(false, true, url, 0));
++                FamilyRouteProbePolicy.localStatus(true, true, 1, url, FamilyRouteProbePolicy.LOCAL_ROUTE_LIMIT));
++        assertEquals(FamilyRouteProbePolicy.LocalStatus.NO_MATCH, FamilyRouteProbePolicy.localStatus(false, true, 1, url, 0));
++    }
++
++    @Test public void remoteResolutionDoesNotChangeAutomaticPlaybackPolicy() {
++        assertTrue(FamilyRouteProbePolicy.supportsProbe(4, false));
++        assertFalse(FamilyRouteProbePolicy.supportsProbe(3, false));
++        assertFalse(FamilyRouteProbePolicy.supportsProbe(4, true));
++        assertEquals(FamilyRouteProbePolicy.LocalStatus.PROBE,
++                FamilyRouteProbePolicy.localStatus(true, true, 4, "provider-item-id", 0));
++        assertEquals(FamilyRouteProbePolicy.LocalStatus.MANUAL_ONLY,
++                FamilyRouteProbePolicy.localStatus(true, true, 4, " ", 0));
++        assertTrue(FamilyRouteProbePolicy.httpMedia("https://example.org/media?id=1"));
++        assertFalse(FamilyRouteProbePolicy.httpMedia("https://user:secret@example.org/media"));
++    }
++
++    @Test public void chineseEpisodeOrdinalsMatchButDuplicatesAreNeverGuessed() {
++        assertEquals(1, FamilyRouteProbePolicy.episodeIndex("EP09", List.of("第八集", "第九集")));
++        assertEquals(0, FamilyRouteProbePolicy.episodeIndex("第十二集", List.of("EP12", "第十一集")));
++        assertEquals(-1, FamilyRouteProbePolicy.episodeIndex("第9集", List.of("EP09", "第九集")));
++        assertEquals(1, FamilyRouteProbePolicy.initialEpisodeIndex(List.of("预告", "第一集")));
 +    }
 +
 +    @Test public void selectingNeverFallsBackToADifferentEpisode() {
