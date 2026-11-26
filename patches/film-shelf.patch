@@ -4498,10 +4498,10 @@ index a4c9d71..0c2f4d9 100644
      <androidx.appcompat.widget.LinearLayoutCompat
 diff --git a/app/src/leanback/res/values/film_flow.xml b/app/src/leanback/res/values/film_flow.xml
 new file mode 100644
-index 0000000..10c810c
+index 0000000..c95fd9e
 --- /dev/null
 +++ b/app/src/leanback/res/values/film_flow.xml
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,42 @@
 +<resources>
 +    <color name="film_flow_ink">#F5F2EC</color>
 +    <color name="film_flow_muted">#AAB7B8</color>
@@ -4541,13 +4541,15 @@ index 0000000..10c810c
 +    <string name="film_detail_sources">Switch source</string>
 +    <string name="film_scan_local">Check this episode on this source</string>
 +    <string name="film_scan_other">Find other sources</string>
++    <string name="film_category_title">Browse categories</string>
++    <string name="film_category_back">Back</string>
 +</resources>
 diff --git a/app/src/leanback/res/values-zh-rCN/film_flow.xml b/app/src/leanback/res/values-zh-rCN/film_flow.xml
 new file mode 100644
-index 0000000..943fd53
+index 0000000..3640728
 --- /dev/null
 +++ b/app/src/leanback/res/values-zh-rCN/film_flow.xml
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,16 @@
 +<resources>
 +    <string name="film_keyboard">系统键盘</string>
 +    <string name="film_phone_input">手机输入</string>
@@ -4561,13 +4563,15 @@ index 0000000..943fd53
 +    <string name="film_detail_sources">换源</string>
 +    <string name="film_scan_local">检测本来源的当前集</string>
 +    <string name="film_scan_other">查找其他来源</string>
++    <string name="film_category_title">分类浏览</string>
++    <string name="film_category_back">返回</string>
 +</resources>
 diff --git a/app/src/leanback/res/values-zh-rTW/film_flow.xml b/app/src/leanback/res/values-zh-rTW/film_flow.xml
 new file mode 100644
-index 0000000..ec8088b
+index 0000000..c06bde9
 --- /dev/null
 +++ b/app/src/leanback/res/values-zh-rTW/film_flow.xml
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,16 @@
 +<resources>
 +    <string name="film_keyboard">系統鍵盤</string>
 +    <string name="film_phone_input">手機輸入</string>
@@ -4581,4 +4585,376 @@ index 0000000..ec8088b
 +    <string name="film_detail_sources">換源</string>
 +    <string name="film_scan_local">檢測本來源的目前集數</string>
 +    <string name="film_scan_other">尋找其他來源</string>
++    <string name="film_category_title">分類瀏覽</string>
++    <string name="film_category_back">返回</string>
 +</resources>
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VodActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VodActivity.java
+index 636d980..3dc76bb 100644
+--- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VodActivity.java
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VodActivity.java
+@@ -38,7 +38,6 @@ public class VodActivity extends BaseActivity implements TypeAdapter.OnClickList
+ 
+     private ActivityVodBinding mBinding;
+     private TypeAdapter mAdapter;
+-    private View mOldView;
+ 
+     public static void start(Activity activity, Result result) {
+         start(activity, VodConfig.get().getHome().getKey(), result);
+@@ -91,26 +90,36 @@ public class VodActivity extends BaseActivity implements TypeAdapter.OnClickList
+ 
+     @Override
+     protected void initEvent() {
++        mBinding.filmCategoryBack.setOnClickListener(view -> onBackInvoked());
+         mBinding.pager.addOnPageChangeListener(new ViewPager.SimpleOnPageChangeListener() {
+             @Override
+             public void onPageSelected(int position) {
+-                mBinding.recycler.setSelectedPosition(position);
+-                mBinding.recycler.requestFocus();
++                App.removeCallbacks(mRunnable);
++                mAdapter.setActivePosition(position);
++                if (mBinding.recycler.getSelectedPosition() != position) {
++                    mBinding.recycler.setSelectedPosition(position);
++                }
++                if (!mBinding.recycler.isInTouchMode() && mBinding.recycler.hasFocus()) {
++                    mBinding.recycler.requestFocus();
++                }
+             }
+         });
+         mBinding.recycler.addOnChildViewHolderSelectedListener(new OnChildViewHolderSelectedListener() {
+             @Override
+             public void onChildViewHolderSelected(@NonNull RecyclerView parent, @Nullable RecyclerView.ViewHolder child, int position, int subposition) {
+-                onChildSelected(child);
++                if (child == null || position == mBinding.pager.getCurrentItem()) return;
++                if (mBinding.recycler.isInTouchMode() || !mBinding.recycler.hasFocus()) return;
++                App.removeCallbacks(mRunnable);
++                App.post(mRunnable, 100);
+             }
+         });
+     }
+ 
+     private void setRecyclerView() {
+-        mBinding.recycler.requestFocus();
++        if (!mBinding.recycler.isInTouchMode()) mBinding.recycler.requestFocus();
+         mBinding.recycler.setHorizontalSpacing(ResUtil.dp2px(16));
+         mBinding.recycler.setRowHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
+-        mBinding.recycler.setAdapter(mAdapter = new TypeAdapter(this));
++        mBinding.recycler.setAdapter(mAdapter = new TypeAdapter(this, true));
+     }
+ 
+     private void setTypes() {
+@@ -121,19 +130,17 @@ public class VodActivity extends BaseActivity implements TypeAdapter.OnClickList
+         mBinding.pager.setAdapter(new PageAdapter(getSupportFragmentManager()));
+         mBinding.pager.setCurrentItem(getPosition());
+         mBinding.recycler.setSelectedPosition(getPosition());
+-    }
+-
+-    private void onChildSelected(@Nullable RecyclerView.ViewHolder child) {
+-        if (mOldView != null) mOldView.setSelected(false);
+-        if ((mOldView = child != null ? child.itemView : null) == null) return;
+-        mOldView.setSelected(true);
+-        App.post(mRunnable, 100);
++        mAdapter.setActivePosition(getPosition());
+     }
+ 
+     private final Runnable mRunnable = new Runnable() {
+         @Override
+         public void run() {
+-            mBinding.pager.setCurrentItem(mBinding.recycler.getSelectedPosition());
++            int position = mBinding.recycler.getSelectedPosition();
++            if (!mBinding.recycler.isInTouchMode() && mBinding.recycler.hasFocus()
++                    && position >= 0 && position < mAdapter.getItemCount()) {
++                mBinding.pager.setCurrentItem(position);
++            }
+         }
+     };
+ 
+@@ -162,7 +169,17 @@ public class VodActivity extends BaseActivity implements TypeAdapter.OnClickList
+ 
+     @Override
+     public void onItemClick(Class item) {
+-        updateFilter(item);
++        int position = mAdapter.indexOf(item);
++        if (position < 0) return;
++        App.removeCallbacks(mRunnable);
++        if (position == mBinding.pager.getCurrentItem()) updateFilter(item);
++        else mBinding.pager.setCurrentItem(position);
++    }
++
++    @Override
++    protected void onDestroy() {
++        App.removeCallbacks(mRunnable);
++        super.onDestroy();
+     }
+ 
+     @Override
+@@ -173,7 +190,17 @@ public class VodActivity extends BaseActivity implements TypeAdapter.OnClickList
+     @Override
+     public boolean dispatchKeyEvent(KeyEvent event) {
+         if (KeyUtil.isMenuKey(event)) updateFilter();
+-        if (KeyUtil.isActionDown(event) && KeyUtil.isDownKey(event) && mBinding.recycler.hasFocus()) return requestContentFocus();
++        if (KeyUtil.isActionDown(event) && KeyUtil.isUpKey(event) && mBinding.recycler.hasFocus()) {
++            return mBinding.filmCategoryBack.requestFocus();
++        }
++        if (KeyUtil.isActionDown(event) && KeyUtil.isDownKey(event) && mBinding.filmCategoryBack.hasFocus()) {
++            return mBinding.recycler.requestFocus();
++        }
++        if (KeyUtil.isActionDown(event) && KeyUtil.isDownKey(event) && mBinding.recycler.hasFocus()) {
++            // Complete a just-focused tab before handing focus to an existing page.
++            mRunnable.run();
++            return requestContentFocus();
++        }
+         return super.dispatchKeyEvent(event);
+     }
+ 
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/TypeAdapter.java b/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/TypeAdapter.java
+index e3688dd..e3872c5 100644
+--- a/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/TypeAdapter.java
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/TypeAdapter.java
+@@ -4,6 +4,7 @@ import android.view.LayoutInflater;
+ import android.view.ViewGroup;
+ 
+ import androidx.annotation.NonNull;
++import androidx.appcompat.content.res.AppCompatResources;
+ import androidx.recyclerview.widget.RecyclerView;
+ 
+ import com.fongmi.android.tv.R;
+@@ -19,12 +20,27 @@ public class TypeAdapter extends RecyclerView.Adapter<TypeAdapter.ViewHolder> {
+ 
+     private final OnClickListener mListener;
+     private final List<Class> mItems;
++    private final boolean filmTabs;
++    private int activePosition = RecyclerView.NO_POSITION;
+ 
+     public TypeAdapter(OnClickListener listener) {
++        this(listener, false);
++    }
++
++    public TypeAdapter(OnClickListener listener, boolean filmTabs) {
+         mListener = listener;
++        this.filmTabs = filmTabs;
+         mItems = new ArrayList<>();
+     }
+ 
++    public void setActivePosition(int position) {
++        if (position == activePosition) return;
++        int old = activePosition;
++        activePosition = position;
++        if (old >= 0 && old < getItemCount()) notifyItemChanged(old);
++        if (position >= 0 && position < getItemCount()) notifyItemChanged(position);
++    }
++
+     public void addAll(List<Class> items) {
+         mItems.clear();
+         mItems.addAll(items);
+@@ -47,15 +63,25 @@ public class TypeAdapter extends RecyclerView.Adapter<TypeAdapter.ViewHolder> {
+     @NonNull
+     @Override
+     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+-        return new ViewHolder(AdapterTypeBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
++        ViewHolder holder = new ViewHolder(AdapterTypeBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
++        if (filmTabs) {
++            holder.binding.text.setBackgroundResource(R.drawable.film_action_background);
++            holder.binding.text.setTextColor(AppCompatResources.getColorStateList(parent.getContext(), R.color.film_action_text));
++            holder.binding.text.setMinHeight(parent.getResources().getDimensionPixelSize(R.dimen.film_flow_target));
++            holder.binding.text.setPaddingRelative(ResUtil.dp2px(14), 0, ResUtil.dp2px(14), 0);
++            holder.binding.text.setGravity(android.view.Gravity.CENTER);
++        }
++        return holder;
+     }
+ 
+     @Override
+     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+         Class item = mItems.get(position);
+         holder.binding.text.setText(item.getTypeName());
+-        holder.binding.getRoot().setSelected(item.isSelected());
+-        holder.binding.getRoot().setNextFocusUpId(R.id.title);
++        boolean active = filmTabs ? position == activePosition : item.isSelected();
++        holder.binding.getRoot().setSelected(active);
++        if (filmTabs) holder.binding.getRoot().setActivated(active);
++        holder.binding.getRoot().setNextFocusUpId(filmTabs ? R.id.filmCategoryBack : R.id.title);
+         holder.binding.getRoot().setNextFocusDownId(R.id.recycler);
+         holder.binding.text.setCompoundDrawablePadding(ResUtil.dp2px(4));
+         holder.binding.text.setCompoundDrawablesWithIntrinsicBounds(0, 0, getIcon(item), 0);
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/custom/CustomVerticalGridView.java b/app/src/leanback/java/com/fongmi/android/tv/ui/custom/CustomVerticalGridView.java
+index 739c15d..550948d 100644
+--- a/app/src/leanback/java/com/fongmi/android/tv/ui/custom/CustomVerticalGridView.java
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/custom/CustomVerticalGridView.java
+@@ -3,6 +3,8 @@ package com.fongmi.android.tv.ui.custom;
+ import android.content.Context;
+ import android.util.AttributeSet;
+ import android.view.KeyEvent;
++import android.view.MotionEvent;
++import android.view.ViewTreeObserver;
+ import android.view.View;
+ 
+ import androidx.annotation.NonNull;
+@@ -14,6 +16,7 @@ import androidx.recyclerview.widget.RecyclerView;
+ 
+ import com.fongmi.android.tv.R;
+ import com.fongmi.android.tv.utils.KeyUtil;
++import com.fongmi.android.tv.utils.ResUtil;
+ 
+ import java.util.Arrays;
+ import java.util.List;
+@@ -25,6 +28,8 @@ public class CustomVerticalGridView extends VerticalGridView {
+     private boolean pressDown;
+     private boolean pressUp;
+     private boolean moveTop;
++    private boolean categoryTouchScroll;
++    private final ViewTreeObserver.OnTouchModeChangeListener categoryTouchMode = this::applyCategoryScrollMode;
+ 
+     public CustomVerticalGridView(@NonNull Context context) {
+         this(context, null);
+@@ -45,6 +50,7 @@ public class CustomVerticalGridView extends VerticalGridView {
+         setOnChildViewHolderSelectedListener(new OnChildViewHolderSelectedListener() {
+             @Override
+             public void onChildViewHolderSelected(@NonNull RecyclerView parent, @Nullable ViewHolder child, int position, int subposition) {
++                if (categoryTouchScroll && isInTouchMode()) return;
+                 if (pressDown && position == 1) hideHeader();
+                 if (pressUp && position == 0) showHeader();
+             }
+@@ -55,6 +61,49 @@ public class CustomVerticalGridView extends VerticalGridView {
+         if (activity != null) views = Arrays.stream(layoutIds).mapToObj(id -> (View) activity.findViewById(id)).filter(Objects::nonNull).toList();
+     }
+ 
++    public void enableCategoryTouchScroll() {
++        if (categoryTouchScroll) return;
++        categoryTouchScroll = true;
++        if (isAttachedToWindow()) getViewTreeObserver().addOnTouchModeChangeListener(categoryTouchMode);
++        applyCategoryScrollMode(isInTouchMode());
++    }
++
++    @Override
++    protected void onAttachedToWindow() {
++        super.onAttachedToWindow();
++        if (!categoryTouchScroll) return;
++        getViewTreeObserver().addOnTouchModeChangeListener(categoryTouchMode);
++        applyCategoryScrollMode(isInTouchMode());
++    }
++
++    @Override
++    protected void onDetachedFromWindow() {
++        if (categoryTouchScroll) getViewTreeObserver().removeOnTouchModeChangeListener(categoryTouchMode);
++        super.onDetachedFromWindow();
++    }
++
++    @android.annotation.SuppressLint("RestrictedApi")
++    private void applyCategoryScrollMode(boolean touch) {
++        int strategy = touch ? FOCUS_SCROLL_ITEM : FOCUS_SCROLL_ALIGNED;
++        if (getFocusScrollStrategy() != strategy) setFocusScrollStrategy(strategy);
++    }
++
++    @Override
++    public boolean dispatchTouchEvent(@NonNull MotionEvent event) {
++        if (categoryTouchScroll && event.getActionMasked() == MotionEvent.ACTION_DOWN) {
++            pressUp = false;
++            pressDown = false;
++            applyCategoryScrollMode(true);
++        }
++        return super.dispatchTouchEvent(event);
++    }
++
++    public boolean hasCategoryRowsAbove() {
++        if (getLayoutManager() == null || getChildCount() == 0) return false;
++        View first = getLayoutManager().findViewByPosition(0);
++        return first == null || getLayoutManager().getDecoratedTop(first) < getPaddingTop() - ResUtil.dp2px(2);
++    }
++
+     public void setMoveTop(boolean moveTop) {
+         this.moveTop = moveTop;
+     }
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/fragment/TypeFragment.java b/app/src/leanback/java/com/fongmi/android/tv/ui/fragment/TypeFragment.java
+index 90987c9..7108ab4 100644
+--- a/app/src/leanback/java/com/fongmi/android/tv/ui/fragment/TypeFragment.java
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/fragment/TypeFragment.java
+@@ -31,6 +31,7 @@ import com.fongmi.android.tv.databinding.FragmentTypeBinding;
+ import com.fongmi.android.tv.model.SiteViewModel;
+ import com.fongmi.android.tv.ui.activity.CollectActivity;
+ import com.fongmi.android.tv.ui.activity.VideoActivity;
++import com.fongmi.android.tv.ui.activity.VodActivity;
+ import com.fongmi.android.tv.ui.base.BaseFragment;
+ import com.fongmi.android.tv.ui.custom.CustomRowPresenter;
+ import com.fongmi.android.tv.ui.custom.CustomScroller;
+@@ -120,6 +121,10 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
+     @Override
+     protected void initEvent() {
+         mBinding.swipeLayout.setOnRefreshListener(this);
++        if (requireActivity() instanceof VodActivity) {
++            mBinding.recycler.enableCategoryTouchScroll();
++            mBinding.swipeLayout.setOnChildScrollUpCallback((refresh, child) -> mBinding.recycler.hasCategoryRowsAbove());
++        }
+         mBinding.recycler.addOnScrollListener(mScroller);
+     }
+ 
+@@ -283,7 +288,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
+         } else {
+             if (headerVisible) mBinding.recycler.showHeader();
+             else mBinding.recycler.hideHeader();
+-            mBinding.recycler.requestFocus();
++            if (!mBinding.recycler.isInTouchMode()) mBinding.recycler.requestFocus();
+         }
+     }
+ 
+diff --git a/app/src/leanback/res/layout/activity_vod.xml b/app/src/leanback/res/layout/activity_vod.xml
+index 83999ef..224ba2b 100644
+--- a/app/src/leanback/res/layout/activity_vod.xml
++++ b/app/src/leanback/res/layout/activity_vod.xml
+@@ -3,7 +3,37 @@
+     xmlns:app="http://schemas.android.com/apk/res-auto"
+     android:layout_width="match_parent"
+     android:layout_height="match_parent"
+-    android:orientation="vertical">
++    android:orientation="vertical"
++    android:background="@color/film_shelf_home_background">
++
++    <androidx.appcompat.widget.LinearLayoutCompat
++        android:layout_width="match_parent"
++        android:layout_height="wrap_content"
++        android:gravity="center_vertical"
++        android:paddingStart="24dp"
++        android:paddingTop="12dp"
++        android:paddingEnd="24dp"
++        android:orientation="horizontal">
++
++        <Button
++            android:id="@+id/filmCategoryBack"
++            style="@style/FilmFlow.Action"
++            android:layout_width="wrap_content"
++            android:layout_height="wrap_content"
++            android:nextFocusDown="@id/recycler"
++            android:text="@string/film_category_back" />
++
++        <com.google.android.material.textview.MaterialTextView
++            android:id="@+id/title"
++            android:layout_width="match_parent"
++            android:layout_height="wrap_content"
++            android:layout_marginStart="16dp"
++            android:accessibilityHeading="true"
++            android:text="@string/film_category_title"
++            android:textColor="@color/film_flow_ink"
++            android:textSize="22sp"
++            android:textStyle="bold" />
++    </androidx.appcompat.widget.LinearLayoutCompat>
+ 
+     <androidx.leanback.widget.HorizontalGridView
+         android:id="@+id/recycler"
+@@ -12,7 +42,9 @@
+         android:clipChildren="false"
+         android:clipToPadding="false"
+         android:paddingStart="24dp"
+-        android:paddingTop="24dp"
++        android:paddingTop="10dp"
++        android:paddingBottom="6dp"
++        android:nextFocusUp="@id/filmCategoryBack"
+         android:paddingEnd="24dp"
+         app:focusOutEnd="false"
+         app:focusOutFront="false" />
+@@ -20,6 +52,7 @@
+     <com.fongmi.android.tv.ui.custom.CustomViewPager
+         android:id="@+id/pager"
+         android:layout_width="match_parent"
+-        android:layout_height="match_parent" />
++        android:layout_height="0dp"
++        android:layout_weight="1" />
+ 
+ </androidx.appcompat.widget.LinearLayoutCompat>
