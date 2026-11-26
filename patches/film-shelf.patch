@@ -2560,10 +2560,18 @@ index b1ab8a3..a1f0e53 100644
      }
  
 diff --git a/app/src/main/java/com/fongmi/android/tv/setting/Setting.java b/app/src/main/java/com/fongmi/android/tv/setting/Setting.java
-index 4a2e928..25291d6 100644
+index 4a2e928..8bbd57d 100644
 --- a/app/src/main/java/com/fongmi/android/tv/setting/Setting.java
 +++ b/app/src/main/java/com/fongmi/android/tv/setting/Setting.java
-@@ -100,7 +100,8 @@ public class Setting {
+@@ -42,6 +42,7 @@ public class Setting {
+     public static final int LANGUAGE_FOLLOW_SYSTEM = 0;
+     public static final int LANGUAGE_SIMPLIFIED = 1;
+     public static final int LANGUAGE_TRADITIONAL = 2;
++    private static final int DEFAULT_LANGUAGE = LANGUAGE_SIMPLIFIED;
+     private static final int[] LANGUAGE_OPTIONS = {LANGUAGE_FOLLOW_SYSTEM, LANGUAGE_SIMPLIFIED, LANGUAGE_TRADITIONAL};
+ 
+     public static final int CSP_WARMUP_DISABLED = 0;
+@@ -100,7 +101,8 @@ public class Setting {
      };
  
      public static String getDoh() {
@@ -2573,6 +2581,42 @@ index 4a2e928..25291d6 100644
      }
  
      public static void putDoh(String doh) {
+@@ -354,12 +356,12 @@ public class Setting {
+     }
+ 
+     public static int getLanguage() {
+-        int language = Prefers.getInt("language", LANGUAGE_FOLLOW_SYSTEM);
+-        return isLanguage(language) ? language : LANGUAGE_FOLLOW_SYSTEM;
++        int language = Prefers.getInt("language", DEFAULT_LANGUAGE);
++        return isLanguage(language) ? language : DEFAULT_LANGUAGE;
+     }
+ 
+     public static void putLanguage(int language) {
+-        int value = isLanguage(language) ? language : LANGUAGE_FOLLOW_SYSTEM;
++        int value = isLanguage(language) ? language : DEFAULT_LANGUAGE;
+         Prefers.put("language", value);
+         applyLanguage(value);
+     }
+@@ -375,7 +377,7 @@ public class Setting {
+     }
+ 
+     public static void putLanguageIndex(int index) {
+-        putLanguage(index >= 0 && index < LANGUAGE_OPTIONS.length ? LANGUAGE_OPTIONS[index] : LANGUAGE_FOLLOW_SYSTEM);
++        putLanguage(index >= 0 && index < LANGUAGE_OPTIONS.length ? LANGUAGE_OPTIONS[index] : DEFAULT_LANGUAGE);
+     }
+ 
+     private static boolean isLanguage(int language) {
+@@ -396,6 +398,10 @@ public class Setting {
+     public static Context wrapLanguage(Context context) {
+         int language = getLanguage();
+         applyLanguage(language);
++        return languageContext(context, language);
++    }
++
++    public static Context languageContext(Context context, int language) {
+         if (language == LANGUAGE_FOLLOW_SYSTEM) return context;
+         Locale locale = language == LANGUAGE_TRADITIONAL ? Locale.TRADITIONAL_CHINESE : Locale.SIMPLIFIED_CHINESE;
+         Configuration config = new Configuration(context.getResources().getConfiguration());
 diff --git a/app/src/main/res/values/family_build_name.xml b/app/src/main/res/values/family_build_name.xml
 new file mode 100644
 index 0000000..872cbea
@@ -3665,3 +3709,67 @@ index a9aded5..6e2916e 100644
  android-application = { id = "com.android.application", version.ref = "agp" }
  android-library = { id = "com.android.library", version.ref = "agp" }
  chaquo-python = { id = "com.chaquo.python", version.ref = "python" }
+diff --git a/app/src/main/java/com/fongmi/android/tv/utils/ResUtil.java b/app/src/main/java/com/fongmi/android/tv/utils/ResUtil.java
+index 4a135a1..b9fb0f0 100644
+--- a/app/src/main/java/com/fongmi/android/tv/utils/ResUtil.java
++++ b/app/src/main/java/com/fongmi/android/tv/utils/ResUtil.java
+@@ -2,6 +2,7 @@ package com.fongmi.android.tv.utils;
+ 
+ import android.content.Context;
+ import android.content.res.Configuration;
++import android.content.res.Resources;
+ import android.content.res.TypedArray;
+ import android.graphics.Paint;
+ import android.graphics.Rect;
+@@ -23,9 +24,32 @@ import androidx.annotation.StringRes;
+ import androidx.core.content.ContextCompat;
+ 
+ import com.fongmi.android.tv.App;
++import com.fongmi.android.tv.setting.Setting;
+ 
+ public class ResUtil {
+ 
++    private record TextResources(int language, Configuration base, Resources value) {}
++    private static volatile TextResources localizedText;
++
++    private static Resources textResources() {
++        Context app = App.get();
++        Resources deviceResources = app.getResources();
++        int language = Setting.getLanguage();
++        if (language == Setting.LANGUAGE_FOLLOW_SYSTEM) return deviceResources;
++
++        // Some presenter labels and messages are resolved from the application, not
++        // the activity whose context already carries the app language.
++        Configuration current = deviceResources.getConfiguration();
++        TextResources cached = localizedText;
++        if (cached != null && cached.language() == language && cached.base().equals(current)) {
++            return cached.value();
++        }
++        Resources result = Setting.languageContext(app, language).getResources();
++        localizedText = new TextResources(language, new Configuration(current), result);
++        return result;
++    }
++
++
+     public static DisplayMetrics getDisplayMetrics() {
+         return getDisplayMetrics(App.get());
+     }
+@@ -91,15 +115,15 @@ public class ResUtil {
+     }
+ 
+     public static String getString(@StringRes int resId) {
+-        return App.get().getResources().getString(resId);
++        return textResources().getString(resId);
+     }
+ 
+     public static String getString(@StringRes int resId, Object... formatArgs) {
+-        return App.get().getResources().getString(resId, formatArgs);
++        return textResources().getString(resId, formatArgs);
+     }
+ 
+     public static String[] getStringArray(@ArrayRes int resId) {
+-        return App.get().getResources().getStringArray(resId);
++        return textResources().getStringArray(resId);
+     }
+ 
+     public static TypedArray getTypedArray(@ArrayRes int resId) {

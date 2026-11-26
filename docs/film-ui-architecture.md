@@ -142,3 +142,18 @@ same APK. For a rollback build, set `film_shelf_modern_native_home` to
 - Synthetic catalog showed all three history titles above the fold on
   emulator 20:9, 16:9 and 16:10. Not physical TV/Y700 acceptance; optional
   web mode was kept on its old path, not exercised against a live source.
+
+### Application language
+
+Film Shelf defaults to Simplified Chinese when the app language preference
+is absent. Explicit choices (including Follow system) are preserved. The
+Android device locale is not modified. The existing Activity context and
+shared UI string/array utilities now resolve the same language, including
+dynamic section labels. Provider-supplied strings are not translated by
+this change.
+
+Verified on an English Android ARM64 emulator with no stored app language:
+new Home, dynamic recommendation and history labels, Search prompt, Settings
+and playback controls use Simplified Chinese. The existing settings control
+cycled to Traditional Chinese, Follow system and back, with the choices
+persisting as app preferences and the device still English.
