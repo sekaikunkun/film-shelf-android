@@ -588,7 +588,7 @@ new file mode 100644
 +    }
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
-index 4a19e31..209f507 100644
+index 4a19e31..806cc60 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
 @@ -3,9 +3,11 @@ package com.fongmi.android.tv.ui.activity;
@@ -641,7 +641,23 @@ index 4a19e31..209f507 100644
      private ArrayObjectAdapter mAdapter;
      private HistoryPresenter mPresenter;
      private SiteViewModel mViewModel;
-@@ -156,8 +169,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -113,6 +126,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+     private String webDefaultChromeMode = TV_FULL;
+     private boolean webToolbarVisible = true;
+     private boolean loadingHomeCategory;
++    private final ViewTreeObserver.OnTouchModeChangeListener homeTouchMode = this::applyHomeScrollStrategy;
+ 
+     private Site getHome() {
+         return VodConfig.get().getHome();
+@@ -147,6 +161,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+         mClock = Clock.create(mBinding.clock);
+         mBinding.progressLayout.showProgress();
+         setRecyclerView();
++        mBinding.recycler.getViewTreeObserver().addOnTouchModeChangeListener(homeTouchMode);
+         setViewModel();
+         setAdapter();
+         runAfterFirstFrame(this::initAfterFirstFrame);
+@@ -156,8 +171,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      private void initAfterFirstFrame() {
          SpiderDebug.log("startup", "home first frame cost=%sms", System.currentTimeMillis() - App.time());
          App.post(this::initConfig, 80);
@@ -654,7 +670,7 @@ index 4a19e31..209f507 100644
      }
  
      private void runAfterFirstFrame(Runnable runnable) {
-@@ -195,7 +210,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -195,7 +212,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      }
  
      private void updateToolbarVisibility(boolean visible) {
@@ -663,7 +679,7 @@ index 4a19e31..209f507 100644
          syncNativeContentInset();
          syncWebOverlayLayout();
      }
-@@ -229,7 +244,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -229,7 +246,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      }
  
      private boolean isTopRow(int position) {
@@ -672,7 +688,7 @@ index 4a19e31..209f507 100644
          return history == -1 || position < history;
      }
  
-@@ -246,7 +261,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -246,7 +263,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      private void checkType(Intent intent) {
          if ("text/plain".equals(intent.getType()) || UrlUtil.path(intent.getData()).endsWith(".m3u")) {
@@ -681,7 +697,7 @@ index 4a19e31..209f507 100644
          } else {
              VideoActivity.push(this, intent.getData().toString());
          }
-@@ -309,7 +324,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -309,7 +326,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      private void setAdapter() {
          mHistoryAdapter = new ArrayObjectAdapter(mPresenter = new HistoryPresenter(this));
@@ -691,7 +707,7 @@ index 4a19e31..209f507 100644
          mAdapter.add(R.string.home_history);
          mAdapter.add(R.string.home_recommend);
      }
-@@ -318,12 +334,12 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -318,12 +336,12 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          List<String> items = Arrays.asList(getHome().getName(), getConfig().getName(), getString(R.string.app_name));
          Optional<String> optional = items.stream().filter(s -> !TextUtils.isEmpty(s)).findFirst();
          optional.ifPresent(s -> mBinding.title.setText(s));
@@ -705,7 +721,7 @@ index 4a19e31..209f507 100644
          WallConfig.get().init();
      }
  
-@@ -367,16 +383,14 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -367,16 +385,14 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          SpiderDebug.log("startup", "webview prewarm end cost=%sms", System.currentTimeMillis() - App.time());
      }
  
@@ -728,7 +744,7 @@ index 4a19e31..209f507 100644
          mBinding.title.setSelected(true);
          mBinding.title.setFocusable(true);
          if (!mBinding.title.hasFocus()) mBinding.recycler.requestFocus();
-@@ -391,6 +405,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -391,6 +407,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
              ensureWebView();
          }
          if (!forceNative && mWeb != null && mWeb.load(getHome())) {
@@ -736,7 +752,7 @@ index 4a19e31..209f507 100644
              mBinding.typeRecycler.setVisibility(View.GONE);
              mBinding.recycler.setVisibility(View.GONE);
              mBinding.progressLayout.showContent();
-@@ -399,6 +414,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -399,6 +416,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          }
          if (mWeb != null) mWeb.hide();
          hideWebOverlay();
@@ -744,7 +760,7 @@ index 4a19e31..209f507 100644
          applyTvChrome(TV_NORMAL);
          mBinding.recycler.setVisibility(View.VISIBLE);
          mResult = Result.empty();
-@@ -409,6 +425,41 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -409,6 +427,42 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          mViewModel.homeContent();
      }
  
@@ -757,6 +773,7 @@ index 4a19e31..209f507 100644
 +        if (modernNativeHome == enabled) return;
 +        int heading = mAdapter.indexOf(historyHeading());
 +        modernNativeHome = enabled;
++        applyHomeScrollStrategy(mBinding.recycler.isInTouchMode());
 +        if (enabled && modernChrome == null) {
 +            modernChrome = FilmShelfHome.attach(mBinding.modernHomeChrome, new FilmShelfHome.Actions() {
 +                @Override public void search() { onItemClick(Func.create(R.string.home_search)); }
@@ -786,7 +803,7 @@ index 4a19e31..209f507 100644
      private void showWebOverlay() {
          mBinding.webOverlay.setVisibility(View.VISIBLE);
          syncWebOverlayLayout();
-@@ -462,7 +513,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -462,7 +516,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      private void setFunc() {
          List<Func> items = new ArrayList<>();
@@ -794,7 +811,7 @@ index 4a19e31..209f507 100644
          items.add(Func.create(R.string.home_search));
          items.add(Func.create(R.string.home_keep));
          items.add(Func.create(R.string.home_push));
-@@ -479,10 +529,11 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -479,10 +532,11 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          int historyIndex = getHistoryIndex();
          int recommendIndex = getRecommendIndex();
          boolean exist = recommendIndex - historyIndex == 2;
@@ -807,7 +824,7 @@ index 4a19e31..209f507 100644
      }
  
      private void setHistoryDelete(boolean delete) {
-@@ -497,8 +548,49 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -497,8 +551,49 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          mHistoryAdapter.clear();
      }
  
@@ -858,7 +875,7 @@ index 4a19e31..209f507 100644
      }
  
      private int getRecommendIndex() {
-@@ -520,9 +612,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -520,9 +615,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
              case COMMON:
                  setFunc();
                  break;
@@ -868,7 +885,7 @@ index 4a19e31..209f507 100644
          }
      }
  
-@@ -586,8 +675,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -586,8 +678,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      @Override
      public void onItemClick(Func item) {
@@ -878,7 +895,7 @@ index 4a19e31..209f507 100644
          else if (item.getResId() == R.string.home_push) PushActivity.start(this);
          else if (item.getResId() == R.string.home_search) SearchActivity.start(this);
          else if (item.getResId() == R.string.home_setting) SettingActivity.start(this);
-@@ -627,6 +715,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -627,6 +718,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      @Override
      public void onItemClick(History item) {
@@ -888,13 +905,22 @@ index 4a19e31..209f507 100644
          VideoActivity.start(this, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), null, item.getWallPic());
      }
  
-@@ -686,8 +777,21 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -686,8 +780,30 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          VodConfig.get().setHome(item);
      }
  
++    @SuppressLint("RestrictedApi")
++    private void applyHomeScrollStrategy(boolean touchMode) {
++        // Leanback's aligned strategy can snap a relaid-out viewport to the old focus row.
++        int strategy = modernNativeHome && touchMode
++                ? HorizontalGridView.FOCUS_SCROLL_ITEM : HorizontalGridView.FOCUS_SCROLL_ALIGNED;
++        if (mBinding.recycler.getFocusScrollStrategy() != strategy) mBinding.recycler.setFocusScrollStrategy(strategy);
++    }
++
 +    @Override
 +    public boolean dispatchTouchEvent(MotionEvent event) {
 +        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
++            applyHomeScrollStrategy(true);
 +            restoreHistoryFocus = false;
 +            historyReturnKey = null;
 +        }
@@ -910,7 +936,7 @@ index 4a19e31..209f507 100644
          if (KeyUtil.isMenuKey(event)) {
              showDialog();
              return true;
-@@ -705,6 +809,15 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -705,6 +821,15 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
              if (mWeb.dispatchKeyEvent(event)) return true;
              return super.dispatchKeyEvent(event);
          }
@@ -926,7 +952,7 @@ index 4a19e31..209f507 100644
          if (KeyUtil.isActionDown(event) & KeyUtil.isUpKey(event) && mBinding.typeRecycler.hasFocus()) return requestTitleFocus();
          if (KeyUtil.isActionDown(event) & KeyUtil.isDownKey(event) && mBinding.typeRecycler.hasFocus()) return requestContentFocus();
          if (KeyUtil.isActionDown(event) & KeyUtil.isUpKey(event) && mBinding.recycler.hasFocus() && mBinding.typeRecycler.getVisibility() == View.VISIBLE) updateToolbarVisibility(true);
-@@ -737,8 +850,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -737,8 +862,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      @Override
      protected void onResume() {
          super.onResume();
@@ -938,7 +964,15 @@ index 4a19e31..209f507 100644
      }
  
      @Override
-@@ -799,6 +914,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -786,6 +913,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+ 
+     @Override
+     protected void onDestroy() {
++        mBinding.recycler.getViewTreeObserver().removeOnTouchModeChangeListener(homeTouchMode);
+         if (mWeb != null) mWeb.destroy();
+         DLNARendererService.stop(this);
+         LiveConfig.get().clear();
+@@ -799,6 +927,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      @Override
      public void onWebLoading() {
