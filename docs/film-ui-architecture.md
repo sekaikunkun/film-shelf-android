@@ -157,3 +157,5 @@ new Home, dynamic recommendation and history labels, Search prompt, Settings
 and playback controls use Simplified Chinese. The existing settings control
 cycled to Traditional Chinese, Follow system and back, with the choices
 persisting as app preferences and the device still English.
+
+- [FS-UI-02 / FS-UI-03 main flow](film-ui-02-03-main-flow.md)

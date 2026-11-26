@@ -947,9 +947,38 @@ index 4a19e31..209f507 100644
          mBinding.progressLayout.showProgress();
      }
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
+index 5a1e119..cd63fbb 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
-@@ -1084,6 +1084,11 @@
+@@ -587,6 +587,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+         SpiderDebug.log("video-flow", "initView after playback cost=%dms", System.currentTimeMillis() - start);
+         disableLeanbackDesktopLyrics();
+         mFrameParams = mBinding.video.getLayoutParams();
++        // Keep room for labeled actions on tablet and compact TV windows.
++        int previewWidth = Math.min(ResUtil.dp2px(400), ResUtil.getScreenWidth() * 39 / 100);
++        mFrameParams.width = previewWidth;
++        mBinding.video.setLayoutParams(mFrameParams);
+         setupAudioStageOverlay();
+         mClock = Clock.create(mBinding.widget.clock);
+         if (PlayerSetting.isImmersiveAudioMode()) ensureImmersiveAudioControllers();
+@@ -667,6 +671,16 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+         mBinding.search.setOnClickListener(view -> onSearch());
+         mBinding.video.setOnClickListener(view -> onVideo());
+         mBinding.change1.setOnClickListener(view -> onChange());
++        mBinding.filmDetailPlay.setActivated(true);
++        mBinding.filmDetailPlay.setOnClickListener(view -> {
++            if (familyLoginWait) {
++                if (familyDialog == null) showFamilyLogin();
++                return;
++            }
++            if (service() != null && !player().isEmpty() && !player().isPlaying()) checkPlay();
++            onVideo();
++        });
++        mBinding.filmDetailEpisodes.setOnClickListener(view -> onEpisodes());
+         mBinding.content.setOnClickListener(view -> onContent());
+         mBinding.control.action.text.setOnClickListener(this::onTrack);
+         mBinding.control.action.audio.setOnClickListener(this::onTrack);
+@@ -1084,6 +1098,11 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void getDetail(Vod item) {
@@ -961,7 +990,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          revealManualSearch = false;
          if (!isAutoMode()) mViewModel.stopSearch();
          saveHistory();
-@@ -1098,7 +1103,6 @@
+@@ -1098,7 +1117,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
              player().reset();
              player().stop();
          }
@@ -969,7 +998,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
      }
  
      private void setDetail(Result result) {
-@@ -1123,7 +1127,7 @@
+@@ -1123,7 +1141,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          } else {
              mBinding.name.setText(getName());
              App.post(mR4, 10000);
@@ -978,7 +1007,20 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          }
      }
  
-@@ -1178,7 +1182,397 @@
+@@ -1141,7 +1159,12 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+         mBinding.video.requestFocus();
+         App.removeCallbacks(mR4);
+         checkHistory(item);
++        mBinding.filmDetailPlay.setText(R.string.film_detail_play);
++        mBinding.filmDetailActions.setVisibility(item.getFlags().isEmpty() || mAudioStageVisible || isFullscreen() ? View.GONE : View.VISIBLE);
+         checkFlag(item);
++        if (!isFullscreen() && mBinding.filmDetailActions.isShown() && !mBinding.video.isInTouchMode()) {
++            mBinding.filmDetailPlay.requestFocus();
++        }
+         checkKeepImg();
+         setText(item);
+         updateKeep();
+@@ -1178,7 +1201,398 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          };
      }
  
@@ -1244,7 +1286,8 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
 +            if (expiredBehindOverlay) familyWait.start(now);
 +            else {
 +                applyFamilyFailure(error);
-+                if (!tryFamilyNextLine(error)) showFamilyRecovery(FamilyPlaybackWait.classifyFailure(error));
++                FamilyPlaybackWait.Failure failure = FamilyPlaybackWait.classifyFailure(error);
++                if (failure == FamilyPlaybackWait.Failure.TIMEOUT || !tryFamilyNextLine(error)) showFamilyRecovery(failure);
 +            }
 +        } else if (familyWait.shouldPrompt(now, obscured)) {
 +            showFamilyRecovery(null);
@@ -1376,7 +1419,16 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          mBinding.widget.title.setText(getString(R.string.detail_title, mBinding.name.getText(), episode.getName()));
          playerStartTime = System.currentTimeMillis();
          beginPlayHealth();
-@@ -1208,6 +1602,12 @@
+@@ -1203,11 +1617,21 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+         SpiderDebug.log("video-flow", "player content request dispatch cost=%dms", System.currentTimeMillis() - step);
+         mBinding.widget.title.setSelected(true);
+         updateHistory(episode);
++        // Resolve the label only after the existing player has selected this episode.
++        String episodeName = episode.getName();
++        mBinding.filmDetailPlay.setText(mHistory.getPosition() > 0 && !episodeName.isBlank()
++                ? getString(R.string.film_detail_continue, episodeName) : getString(R.string.film_detail_play));
+         showProgress();
+     }
  
      private void setPlayer(Result result) {
          if (isFinishing() || isDestroyed()) return;
@@ -1389,7 +1441,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          SpiderDebug.log("video-flow", "player finish cost=%dms useParse=%s multi=%s msg=%s", System.currentTimeMillis() - playerStartTime, result.shouldUseParse(), result.getUrl().isMulti(), result.getMsg());
          if (service() == null) {
              mPendingPlayer = result;
-@@ -1257,6 +1657,10 @@
+@@ -1257,6 +1681,10 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      public void onItemClick(Flag item) {
@@ -1400,7 +1452,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          if (isFinishing() || isDestroyed() || mFlagAdapter.getItemCount() == 0 || item.isSelected()) return;
          int oldPosition = mFlagAdapter.getSelectedPosition();
          mFlagAdapter.setSelected(item);
-@@ -1265,7 +1669,8 @@
+@@ -1265,7 +1693,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          notifyItemsChanged(mBinding.flag, mFlagAdapter, oldPosition, newPosition);
          setEpisodeAdapter(item.getEpisodes());
          setQualityVisible(false);
@@ -1410,7 +1462,26 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
      }
  
      private void setEpisodeAdapter(List<Episode> items) {
-@@ -2471,7 +2876,23 @@
+@@ -1274,6 +1703,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+ 
+     private void setEpisodeAdapter(List<Episode> items, boolean scrollToCurrent) {
+         mBinding.control.action.episodes.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
++        mBinding.filmDetailEpisodes.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
+         applyActionButtonVisibility();
+         mBinding.episode.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
+         boolean audioList = isMusicLike();
+@@ -1532,9 +1962,9 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+             mBinding.video.setForeground(ResUtil.getDrawable(R.drawable.selector_video));
+             mBinding.video.setLayoutParams(mFrameParams);
+         }
+-        getFocus1().requestFocus();
+         mKeyDown.setFull(false);
+         setFullscreen(false);
++        getFocus1().requestFocus();
+         mFocus2 = null;
+         hideInfo();
+     }
+@@ -2471,7 +2901,23 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void onChange() {
@@ -1420,12 +1491,12 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
 +            return;
 +        }
 +        AlertDialog options = new MaterialAlertDialogBuilder(this)
-+                .setTitle("换源")
-+                .setItems(new String[]{"检测本来源的当前集", "查找其他来源"}, (dialog, which) -> {
++                .setTitle(R.string.film_detail_sources)
++                .setItems(new String[]{getString(R.string.film_scan_local), getString(R.string.film_scan_other)}, (dialog, which) -> {
 +                    if (which == 0) startFamilyLocalScan();
 +                    else openFamilyCrossSearch();
 +                })
-+                .setNegativeButton("取消", null).create();
++                .setNegativeButton(R.string.family_scan_cancel, null).create();
 +        options.setOnDismissListener(dismissed -> {
 +            if (familyScanDialog == options) familyScanDialog = null;
 +        });
@@ -1435,7 +1506,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
      }
  
      private void onFullscreen() {
-@@ -3640,11 +4061,36 @@
+@@ -3640,11 +4086,36 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void checkFlag(Vod item) {
@@ -1473,7 +1544,15 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
              onItemClick(mHistory.getFlag());
              if (mHistory.isRevSort()) reverseEpisode(true);
          }
-@@ -5460,6 +5906,18 @@
+@@ -3997,6 +4468,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+         mBinding.director.setVisibility(visible && !TextUtils.isEmpty(mBinding.director.getText()) ? View.VISIBLE : View.GONE);
+         mBinding.actor.setVisibility(visible && !TextUtils.isEmpty(mBinding.actor.getText()) ? View.VISIBLE : View.GONE);
+         mBinding.row2.setVisibility(value);
++        mBinding.filmDetailActions.setVisibility(visible && !isFullscreen() && mFlagAdapter != null && mFlagAdapter.getItemCount() > 0 ? View.VISIBLE : View.GONE);
+         mBinding.scroll.setVisibility(value);
+     }
+ 
+@@ -5460,6 +5932,18 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      protected void onError(String msg) {
@@ -1492,7 +1571,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          recordPlayHealth(false, msg);
          Track.delete(player().getKey());
          mClock.setCallback(null);
-@@ -5469,7 +5927,6 @@
+@@ -5469,7 +5953,6 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          player().reset();
          player().stop();
          showError(msg);
@@ -1500,7 +1579,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
      }
  
      @Override
-@@ -5492,9 +5949,16 @@
+@@ -5492,9 +5975,16 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      protected void onStateChanged(int state) {
          switch (state) {
              case Player.STATE_BUFFERING:
@@ -1517,7 +1596,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
                  mKaraokeResultShown = false;
                  recordPlayHealth(true, "");
                  hideProgress();
-@@ -5502,6 +5966,7 @@
+@@ -5502,6 +5992,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
                  player().reset();
                  break;
              case Player.STATE_ENDED:
@@ -1525,7 +1604,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
                  checkEnded(true);
                  break;
          }
-@@ -5665,14 +6130,19 @@
+@@ -5665,14 +6156,19 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      private void checkFlag() {
          int position = isGone(mBinding.flag) ? -1 : mFlagAdapter.getPosition();
@@ -1549,7 +1628,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
      }
  
      private void initSearch(String keyword, boolean auto) {
-@@ -5730,7 +6200,7 @@
+@@ -5730,7 +6226,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
              mQuickSearchDialog.addAll(items);
              return;
          }
@@ -1558,7 +1637,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          dialog.dismissListener(d -> {
              if (mQuickSearchDialog != dialog) return;
              mQuickSearchDialog = null;
-@@ -5748,14 +6218,17 @@
+@@ -5748,14 +6244,17 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      public void onItemClick(Vod item) {
@@ -1578,7 +1657,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          String keyword = Objects.toString(mBinding.part.getTag(), "");
          if (isAutoMode()) return !item.getName().equals(keyword);
          else return !item.getName().contains(keyword);
-@@ -5779,7 +6252,7 @@
+@@ -5779,7 +6278,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
          Vod item = mQuickAdapter.get(position);
          Notify.show(getString(R.string.play_switch_site, item.getSiteName()));
          mQuickAdapter.remove(position);
@@ -1587,10 +1666,20 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          setInitAuto(false);
          applySearchArtwork(item);
          getDetail(item);
-@@ -6324,6 +6797,22 @@
+@@ -5811,6 +6310,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+ 
+     private void setFullscreen(boolean fullscreen) {
+         this.fullscreen = fullscreen;
++        mBinding.filmDetailActions.setVisibility(!fullscreen && !mAudioStageVisible
++                && mFlagAdapter != null && mFlagAdapter.getItemCount() > 0 ? View.VISIBLE : View.GONE);
+         mBinding.control.action.fullscreen.setVisibility(fullscreen ? View.GONE : View.VISIBLE);
+         mBinding.control.action.fullscreen.setText(R.string.play_fullscreen);
+         applyActionButtonVisibility();
+@@ -6323,6 +6824,22 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
+         if (service() != null) refreshLyrics();
      }
  
-     @Override
++    @Override
 +    protected void onResume() {
 +        super.onResume();
 +        familyResumed = true;
@@ -1606,11 +1695,10 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
 +        super.onPause();
 +    }
 +
-+    @Override
+     @Override
      protected void onStop() {
          super.onStop();
-         if (mOsd != null) mOsd.stop();
-@@ -6354,6 +6843,7 @@
+@@ -6354,6 +6871,7 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
      }
  
      private void finishVideoPlaybackNow() {
@@ -1618,7 +1706,7 @@ diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivi
          mViewModel.stopSearch();
          saveHistory(true);
          markPlaybackExiting();
-@@ -6364,6 +6854,8 @@
+@@ -6364,6 +6882,8 @@ public class VideoActivity extends PlaybackActivity implements CustomKeyDownVod.
  
      @Override
      protected void onDestroy() {
@@ -1739,10 +1827,26 @@ index 552d93d..4d5e249 100644
      <item android:drawable="@drawable/shape_video_item_activated" android:state_selected="true" />
      <item android:drawable="@drawable/shape_video_item_normal" />
 diff --git a/app/src/leanback/res/layout/activity_search.xml b/app/src/leanback/res/layout/activity_search.xml
-index abae288..0411260 100644
+index abae288..6721ce4 100644
 --- a/app/src/leanback/res/layout/activity_search.xml
 +++ b/app/src/leanback/res/layout/activity_search.xml
-@@ -27,7 +27,7 @@
+@@ -4,13 +4,14 @@
+     xmlns:tools="http://schemas.android.com/tools"
+     android:layout_width="match_parent"
+     android:layout_height="match_parent"
++    android:background="@color/film_shelf_home_background"
+     android:clipChildren="false"
+     android:clipToPadding="false"
+     android:orientation="horizontal"
+     android:padding="24dp">
+ 
+     <androidx.appcompat.widget.LinearLayoutCompat
+-        android:layout_width="wrap_content"
++        android:layout_width="350dp"
+         android:layout_height="match_parent"
+         android:layout_marginEnd="24dp"
+         android:orientation="vertical">
+@@ -27,36 +28,73 @@
                  android:layout_gravity="center_vertical"
                  android:layout_marginEnd="12dp"
                  android:focusable="true"
@@ -1750,7 +1854,80 @@ index abae288..0411260 100644
 +                android:focusableInTouchMode="false"
                  android:nextFocusDown="@id/keyboard"
                  android:src="@drawable/ic_search_mic" />
-
+ 
+             <com.fongmi.android.tv.ui.custom.CustomSearchView
+                 android:id="@+id/keyword"
+-                android:layout_width="match_parent"
+-                android:layout_height="wrap_content"
++                android:layout_width="0dp"
++                android:layout_height="@dimen/film_flow_target"
++                android:layout_weight="1"
+                 android:layout_gravity="center_vertical"
+                 android:background="@null"
+                 android:focusable="true"
+                 android:focusableInTouchMode="true"
+                 android:hint="@string/search_keyword"
+-                android:imeOptions="actionDone"
+-                android:inputType="textCapWords|textAutoCorrect|textAutoComplete"
++                android:imeOptions="actionSearch|flagNoExtractUi"
++                android:inputType="text"
+                 android:letterSpacing="0.02"
+                 android:maxLength="255"
+-                android:nextFocusDown="@id/keyboard"
++                android:nextFocusDown="@id/filmKeyboard"
+                 android:singleLine="true"
+                 android:textColor="@color/white"
+-                android:textColorHint="@color/white"
++                android:textColorHint="@color/film_flow_muted"
++                android:paddingStart="6dp"
+                 android:textCursorDrawable="@drawable/shape_cursor"
+                 android:textSize="24sp" />
+ 
+         </androidx.appcompat.widget.LinearLayoutCompat>
+ 
++        <androidx.appcompat.widget.LinearLayoutCompat
++            android:layout_width="match_parent"
++            android:layout_height="wrap_content"
++            android:layout_marginTop="8dp"
++            android:orientation="horizontal">
++            <Button
++                android:id="@+id/filmKeyboard"
++                style="@style/FilmFlow.Action"
++                android:layout_width="wrap_content"
++                android:layout_height="wrap_content"
++                android:layout_marginEnd="8dp"
++                android:text="@string/film_keyboard"
++                android:nextFocusUp="@id/keyword"
++                android:nextFocusDown="@id/keyboard" />
++            <Button
++                android:id="@+id/filmPhoneInput"
++                style="@style/FilmFlow.Action"
++                android:layout_width="wrap_content"
++                android:layout_height="wrap_content"
++                android:layout_marginEnd="8dp"
++                android:text="@string/film_phone_input"
++                android:nextFocusUp="@id/keyword"
++                android:nextFocusDown="@id/keyboard" />
++            <Button
++                android:id="@+id/filmSearchSubmit"
++                style="@style/FilmFlow.Action"
++                android:layout_width="wrap_content"
++                android:layout_height="wrap_content"
++                android:layout_marginEnd="8dp"
++                android:text="@string/film_search_submit"
++                android:nextFocusUp="@id/keyword"
++                android:nextFocusDown="@id/keyboard" />
++        </androidx.appcompat.widget.LinearLayoutCompat>
++
+         <androidx.recyclerview.widget.RecyclerView
+             android:id="@+id/keyboard"
+             android:layout_width="wrap_content"
+-            android:layout_height="wrap_content"
++            android:layout_height="0dp"
++            android:layout_weight="1"
+             android:clipChildren="false"
+             android:clipToPadding="false"
+             android:layout_marginTop="16dp"
 diff --git a/app/src/leanback/res/layout/activity_setting.xml b/app/src/leanback/res/layout/activity_setting.xml
 index 35c62cc..872bc8d 100644
 --- a/app/src/leanback/res/layout/activity_setting.xml
@@ -1936,10 +2113,73 @@ index 35c62cc..872bc8d 100644
 
                  <com.google.android.material.textview.MaterialTextView
 diff --git a/app/src/leanback/res/layout/activity_video.xml b/app/src/leanback/res/layout/activity_video.xml
-index 2f9fe62..28798c9 100644
+index 2f9fe62..7067067 100644
 --- a/app/src/leanback/res/layout/activity_video.xml
 +++ b/app/src/leanback/res/layout/activity_video.xml
-@@ -671,7 +671,7 @@
+@@ -23,7 +23,7 @@
+         android:focusableInTouchMode="true"
+         android:foreground="@drawable/selector_video"
+         android:nextFocusLeft="@id/video"
+-        android:nextFocusRight="@id/content"
++        android:nextFocusRight="@id/filmDetailPlay"
+         android:nextFocusUp="@id/video"
+         android:nextFocusDown="@id/flag">
+ 
+@@ -655,6 +655,53 @@
+         android:textSize="16sp"
+         tools:text="演員：FongMi" />
+ 
++    <androidx.appcompat.widget.LinearLayoutCompat
++        android:id="@+id/filmDetailActions"
++        android:layout_width="match_parent"
++        android:layout_height="wrap_content"
++        android:layout_above="@+id/row2"
++        android:layout_alignStart="@+id/name"
++        android:layout_marginEnd="24dp"
++        android:layout_marginBottom="6dp"
++        android:orientation="horizontal"
++        android:visibility="gone">
++
++        <Button
++            android:id="@+id/filmDetailPlay"
++            style="@style/FilmFlow.Action"
++            android:focusable="true"
++            android:focusableInTouchMode="false"
++            android:layout_width="0dp"
++            android:layout_height="wrap_content"
++            android:layout_weight="1"
++            android:layout_marginEnd="8dp"
++            android:nextFocusDown="@id/content"
++            android:text="@string/film_detail_play" />
++
++        <Button
++            android:id="@+id/filmDetailEpisodes"
++            style="@style/FilmFlow.Action"
++            android:focusable="true"
++            android:focusableInTouchMode="false"
++            android:layout_width="wrap_content"
++            android:layout_height="wrap_content"
++            android:layout_marginEnd="8dp"
++            android:nextFocusDown="@id/content"
++            android:text="@string/film_detail_episodes" />
++
++        <Button
++            android:id="@+id/change1"
++            style="@style/FilmFlow.Action"
++            android:focusable="true"
++            android:focusableInTouchMode="false"
++            android:layout_width="wrap_content"
++            android:layout_height="wrap_content"
++            android:layout_marginEnd="8dp"
++            android:nextFocusDown="@id/content"
++            android:text="@string/film_detail_sources" />
++
++    </androidx.appcompat.widget.LinearLayoutCompat>
++
+     <androidx.appcompat.widget.LinearLayoutCompat
+         android:id="@+id/row2"
+         android:layout_width="wrap_content"
+@@ -671,7 +718,7 @@
              android:background="@drawable/selector_video_item"
              android:drawablePadding="6dp"
              android:focusable="true"
@@ -1948,7 +2188,7 @@ index 2f9fe62..28798c9 100644
              android:gravity="center"
              android:nextFocusUp="@id/actor"
              android:nextFocusDown="@id/flag"
-@@ -689,7 +689,7 @@
+@@ -689,7 +736,7 @@
              android:background="@drawable/selector_video_item"
              android:drawablePadding="6dp"
              android:focusable="true"
@@ -1957,7 +2197,7 @@ index 2f9fe62..28798c9 100644
              android:gravity="center"
              android:nextFocusUp="@id/actor"
              android:nextFocusDown="@id/flag"
-@@ -707,7 +707,7 @@
+@@ -707,7 +754,7 @@
              android:background="@drawable/selector_video_item"
              android:drawablePadding="6dp"
              android:focusable="true"
@@ -1966,7 +2206,7 @@ index 2f9fe62..28798c9 100644
              android:gravity="center"
              android:nextFocusUp="@id/actor"
              android:nextFocusDown="@id/flag"
-@@ -725,7 +725,7 @@
+@@ -725,7 +772,7 @@
              android:background="@drawable/selector_video_item"
              android:drawablePadding="6dp"
              android:focusable="true"
@@ -1975,15 +2215,30 @@ index 2f9fe62..28798c9 100644
              android:gravity="center"
              android:nextFocusUp="@id/actor"
              android:nextFocusDown="@id/flag"
-@@ -742,7 +742,7 @@
-             android:background="@drawable/selector_video_item"
-             android:drawablePadding="6dp"
-             android:focusable="true"
+@@ -735,23 +782,6 @@
+             android:textSize="16sp"
+             app:drawableStartCompat="@drawable/ic_detail_keep_off" />
+ 
+-        <com.google.android.material.textview.MaterialTextView
+-            android:id="@+id/change1"
+-            android:layout_width="wrap_content"
+-            android:layout_height="wrap_content"
+-            android:background="@drawable/selector_video_item"
+-            android:drawablePadding="6dp"
+-            android:focusable="true"
 -            android:focusableInTouchMode="true"
-+            android:focusableInTouchMode="false"
-             android:gravity="center"
-             android:nextFocusRight="@id/change1"
-             android:nextFocusUp="@id/actor"
+-            android:gravity="center"
+-            android:nextFocusRight="@id/change1"
+-            android:nextFocusUp="@id/actor"
+-            android:nextFocusDown="@id/flag"
+-            android:singleLine="true"
+-            android:text="@string/play_change"
+-            android:textColor="@color/white"
+-            android:textSize="16sp"
+-            app:drawableStartCompat="@drawable/ic_detail_change" />
+ 
+     </androidx.appcompat.widget.LinearLayoutCompat>
+ 
 diff --git a/app/src/leanback/res/layout/adapter_episode.xml b/app/src/leanback/res/layout/adapter_episode.xml
 index 73eb644..ee4104e 100644
 --- a/app/src/leanback/res/layout/adapter_episode.xml
@@ -3037,9 +3292,10 @@ diff --git a/app/src/leanback/res/layout/adapter_config.xml b/app/src/leanback/r
          android:textColor="@color/config_history_text"
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyScanProgress.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyScanProgress.java
 new file mode 100644
+index 0000000..2198117
 --- /dev/null
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/FamilyScanProgress.java
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,78 @@
 +package com.fongmi.android.tv.ui.activity;
 +
 +import android.animation.ObjectAnimator;
@@ -3098,10 +3354,11 @@ new file mode 100644
 +        completed.setText(context.getString(R.string.family_scan_completed, done, total,
 +                label == null || label.isBlank() ? context.getString(R.string.family_scan_unnamed) : label));
 +        bar.setMax(total);
-+        bar.setProgressCompat(done, lastDone >= 0);
++        boolean motion = Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled();
++        bar.setProgressCompat(done, motion && lastDone >= 0);
 +        if (done != lastDone) {
 +            lastDone = done;
-+            if (Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled()) {
++            if (motion) {
 +                stopAnimation();
 +                flip = ObjectAnimator.ofFloat(disc, View.ROTATION_Y, -68f, 0f);
 +                flip.setDuration(230);
@@ -3119,6 +3376,7 @@ new file mode 100644
 +}
 diff --git a/app/src/leanback/res/layout/dialog_family_scan_progress.xml b/app/src/leanback/res/layout/dialog_family_scan_progress.xml
 new file mode 100644
+index 0000000..0d68072
 --- /dev/null
 +++ b/app/src/leanback/res/layout/dialog_family_scan_progress.xml
 @@ -0,0 +1,87 @@
@@ -3204,7 +3462,7 @@ new file mode 100644
 +        android:layout_marginTop="12dp"
 +        android:importantForAccessibility="no"
 +        android:indeterminate="false"
-+        app:indicatorColor="#83E1C7"
++        app:indicatorColor="@color/film_flow_accent"
 +        app:trackColor="#426565"
 +        app:trackCornerRadius="3dp"
 +        app:trackThickness="5dp" />
@@ -3335,10 +3593,10 @@ index 2976187..32a1516 100644
          History item = (History) object;
 diff --git a/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfHome.kt b/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfHome.kt
 new file mode 100644
-index 0000000..b4a0bbb
+index 0000000..64538a3
 --- /dev/null
 +++ b/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfHome.kt
-@@ -0,0 +1,278 @@
+@@ -0,0 +1,279 @@
 +package com.fongmi.android.tv.ui.filmshelf
 +
 +import android.view.ViewGroup
@@ -3429,11 +3687,11 @@ index 0000000..b4a0bbb
 +    }
 +}
 +
-+private val Ink = Color(0xFFF5F2EC)
-+private val Muted = Color(0xFFAAB7B8)
-+private val Teal = Color(0xFF9BE4D2)
-+private val OnAccent = Color(0xFF092924)
-+private val Panel = Color(0xFF222C30)
++private val Ink: Color @Composable get() = colorResource(R.color.film_flow_ink)
++private val Muted: Color @Composable get() = colorResource(R.color.film_flow_muted)
++private val Teal: Color @Composable get() = colorResource(R.color.film_flow_accent)
++private val OnAccent: Color @Composable get() = colorResource(R.color.film_flow_on_accent)
++private val Panel: Color @Composable get() = colorResource(R.color.film_flow_panel)
 +private val FocusPanel = Color(0xFF35494C)
 +
 +@Composable
@@ -3525,11 +3783,12 @@ index 0000000..b4a0bbb
 +            horizontalArrangement = Arrangement.spacedBy(10.dp),
 +            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
 +        ) {
++            val iconInk = OnAccent
 +            Canvas(Modifier.size(18.dp)) {
 +                val radius = size.minDimension * 0.3f
 +                val center = Offset(size.width * 0.43f, size.height * 0.43f)
-+                drawCircle(OnAccent, radius, center, style = Stroke(1.8.dp.toPx()))
-+                drawLine(OnAccent, center + Offset(radius * .72f, radius * .72f),
++                drawCircle(iconInk, radius, center, style = Stroke(1.8.dp.toPx()))
++                drawLine(iconInk, center + Offset(radius * .72f, radius * .72f),
 +                    Offset(size.width * .86f, size.height * .86f), 1.8.dp.toPx(), StrokeCap.Round)
 +            }
 +            Text(
@@ -3604,9 +3863,9 @@ index 0000000..b4a0bbb
 +        colors = ClickableSurfaceDefaults.colors(
 +            containerColor = if (primary) Teal else Panel,
 +            contentColor = if (primary) OnAccent else Ink,
-+            focusedContainerColor = if (primary) Color(0xFFC9FFF1) else FocusPanel,
++            focusedContainerColor = if (primary) colorResource(R.color.film_flow_focus) else FocusPanel,
 +            focusedContentColor = if (primary) OnAccent else Ink,
-+            pressedContainerColor = if (primary) Color(0xFF7CCBB8) else FocusPanel,
++            pressedContainerColor = if (primary) colorResource(R.color.film_flow_pressed) else FocusPanel,
 +            pressedContentColor = if (primary) OnAccent else Ink,
 +        ),
 +        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
@@ -3773,3 +4032,519 @@ index 4a135a1..b9fb0f0 100644
      }
  
      public static TypedArray getTypedArray(@ArrayRes int resId) {
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/CollectActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/CollectActivity.java
+index 5d627e8..afc1d50 100644
+--- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/CollectActivity.java
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/CollectActivity.java
+@@ -7,8 +7,7 @@ import android.view.KeyEvent;
+ import android.view.View;
+ 
+ import androidx.annotation.NonNull;
+-import androidx.annotation.Nullable;
+-import androidx.leanback.widget.OnChildViewHolderSelectedListener;
++import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+ import androidx.lifecycle.ViewModelProvider;
+ import androidx.recyclerview.widget.GridLayoutManager;
+ import androidx.recyclerview.widget.RecyclerView;
+@@ -52,6 +51,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
+     private int mPendingCollectPosition = RecyclerView.NO_POSITION;
+     private boolean mScrolling;
+     private boolean mLeavingForPlayback;
++    private Vod mReturnCard;
+ 
+     public static void start(Activity activity, String keyword) {
+         start(activity, keyword, null);
+@@ -116,12 +116,6 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
+         mBinding.collect.setItemAnimator(null);
+         mBinding.collect.setVerticalSpacing(ResUtil.dp2px(12));
+         mBinding.collect.setAdapter(mCollectAdapter = new CollectAdapter(this));
+-        mBinding.collect.addOnChildViewHolderSelectedListener(new OnChildViewHolderSelectedListener() {
+-            @Override
+-            public void onChildViewHolderSelected(@NonNull RecyclerView parent, @Nullable RecyclerView.ViewHolder child, int position, int subposition) {
+-                scheduleCollect(position, 260);
+-            }
+-        });
+         mBinding.collect.setOnKeyListener((view, keyCode, event) -> {
+             if (event.getAction() != KeyEvent.ACTION_DOWN || keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return false;
+             return focusFirstSearchResult();
+@@ -191,7 +185,8 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
+     private void search() {
+         removeApplyCollect();
+         mCollectAdapter.clear();
+-        mSearchAdapter.clear();
++        mReturnCard = null;
++        mSearchAdapter.resetForNewQuery();
+         mPendingItems.clear();
+         mScroller.reset();
+         mBinding.result.setText(getString(R.string.collect_result, getKeyword()));
+@@ -201,7 +196,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
+     }
+ 
+     private int getCount() {
+-        return 5;
++        return Math.min(6, Math.max(2, (ResUtil.getScreenWidth() - ResUtil.dp2px(220)) / ResUtil.dp2px(116)));
+     }
+ 
+     private int getItemWidth(int count) {
+@@ -302,7 +297,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
+     }
+ 
+     private void setSearchItemsLazy(List<Vod> items) {
+-        mSearchAdapter.setSource(items, getCount() * 4);
++        mSearchAdapter.setSource(items, getCount() * 4, mCollectAdapter.getPosition() == 0);
+         mBinding.recycler.post(() -> {
+             scrollSearchToTop();
+             ensureSearchRows(getCount(), 2);
+@@ -332,6 +327,29 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
+ 
+     @Override
+     public void onItemClick(Vod item) {
++        if (mLeavingForPlayback) return;
++        flushPendingItems();
++        List<Vod> choices = mSearchAdapter.getListings(item);
++        if (choices.size() < 2) {
++            openResult(item, item);
++            return;
++        }
++        String[] labels = choices.stream().map(choice -> {
++            String name = choice.getSiteName();
++            if (!choice.getYear().isBlank()) name = getString(R.string.film_listing_year, name, choice.getYear());
++            if (!choice.getRemarks().isBlank()) name = getString(R.string.film_listing_year, name, choice.getRemarks());
++            return name;
++        }).toArray(String[]::new);
++        new MaterialAlertDialogBuilder(this)
++                .setTitle(getString(R.string.film_choose_listing, item.getName()))
++                .setItems(labels, (dialog, which) -> openResult(item, choices.get(which)))
++                .setNegativeButton(android.R.string.cancel, null)
++                .show();
++    }
++
++    private void openResult(Vod card, Vod item) {
++        if (mLeavingForPlayback) return;
++        mReturnCard = card;
+         long start = System.currentTimeMillis();
+         setResult(Activity.RESULT_OK);
+         mLeavingForPlayback = true;
+@@ -345,6 +363,7 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
+         }
+         SpiderDebug.log("collect-flow", "activity launch requested cost=%dms", System.currentTimeMillis() - start);
+         App.post(() -> {
++            if (!mLeavingForPlayback || isFinishing() || isDestroyed()) return;
+             long cleanup = System.currentTimeMillis();
+             if (mViewModel != null) mViewModel.stopSearch();
+             mPendingItems.clear();
+@@ -393,6 +412,20 @@ public class CollectActivity extends BaseActivity implements CollectAdapter.OnCl
+         super.onResume();
+         mLeavingForPlayback = false;
+         if (canLoadImage()) Glide.with(this).resumeRequests();
++        if (mReturnCard != null) {
++            int target = mSearchAdapter.findVisiblePosition(mReturnCard);
++            mReturnCard = null;
++            if (target != RecyclerView.NO_POSITION) mBinding.recycler.post(() -> {
++                View card = mBinding.recycler.getLayoutManager().findViewByPosition(target);
++                if (card == null) mBinding.recycler.scrollToPosition(target);
++                // Touch stays in touch mode; the next controller key has a stable anchor.
++                mBinding.recycler.post(() -> {
++                    if (mLeavingForPlayback || isFinishing() || isDestroyed()) return;
++                    View restored = mBinding.recycler.getLayoutManager().findViewByPosition(target);
++                    if (restored != null && !restored.isInTouchMode()) restored.requestFocus();
++                });
++            });
++        }
+     }
+ 
+     @Override
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/SearchActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/SearchActivity.java
+index 6c2bb6d..9b154a9 100644
+--- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/SearchActivity.java
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/SearchActivity.java
+@@ -10,6 +10,8 @@ import android.view.View;
+ import android.view.inputmethod.EditorInfo;
+ 
+ import androidx.annotation.NonNull;
++import androidx.core.view.WindowCompat;
++import androidx.core.view.WindowInsetsCompat;
+ import androidx.recyclerview.widget.RecyclerView;
+ import androidx.viewbinding.ViewBinding;
+ 
+@@ -56,6 +58,7 @@ public class SearchActivity extends BaseActivity implements WordAdapter.OnClickL
+     private List<Word.Data> mIqiyiWords = new ArrayList<>();
+     private List<Word.Data> mTencentWords = new ArrayList<>();
+     private int mSuggestSeq;
++    private boolean mLaunchingResults;
+ 
+     public static void start(Activity activity) {
+         activity.startActivity(new Intent(activity, SearchActivity.class));
+@@ -117,15 +120,21 @@ public class SearchActivity extends BaseActivity implements WordAdapter.OnClickL
+         CustomKeyboard.init(this, mBinding);
+         setRecyclerView();
+         checkKeyword();
+-        onSearch();
++        if (savedInstanceState == null) onSearch();
+     }
+ 
+     @Override
+     protected void initEvent() {
+         mBinding.keyword.setOnEditorActionListener((textView, actionId, event) -> {
+-            if (actionId == EditorInfo.IME_ACTION_DONE) onSearch();
++            boolean submit = actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE
++                    || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER);
++            if (!submit) return false;
++            if (event == null || event.getAction() == KeyEvent.ACTION_UP) onSearch();
+             return true;
+         });
++        mBinding.filmKeyboard.setOnClickListener(view -> openSystemKeyboard());
++        mBinding.filmPhoneInput.setOnClickListener(view -> onRemote());
++        mBinding.filmSearchSubmit.setOnClickListener(view -> onSearch());
+         mBinding.keyword.addTextChangedListener(new CustomTextListener() {
+             @Override
+             public void afterTextChanged(Editable s) {
+@@ -265,9 +274,15 @@ public class SearchActivity extends BaseActivity implements WordAdapter.OnClickL
+         if (size == 0) focusFirstWord();
+     }
+ 
++    private void openSystemKeyboard() {
++        if (!mBinding.keyword.requestFocus()) return;
++        WindowCompat.getInsetsController(getWindow(), mBinding.keyword).show(WindowInsetsCompat.Type.ime());
++    }
++
+     @Override
+     public void onSearch() {
+-        if (empty()) return;
++        if (empty() || mLaunchingResults) return;
++        mLaunchingResults = true;
+         String keyword = mBinding.keyword.getText().toString().trim();
+         App.post(() -> mRecordAdapter.add(keyword), 250);
+         Util.hideKeyboard(mBinding.keyword);
+@@ -294,6 +309,11 @@ public class SearchActivity extends BaseActivity implements WordAdapter.OnClickL
+     private boolean findFocus(KeyEvent event) {
+         View current = getCurrentFocus();
+         if (current == mBinding.keyword) return handleKeywordKey(event);
++        if (current == mBinding.filmKeyboard || current == mBinding.filmPhoneInput || current == mBinding.filmSearchSubmit) {
++            if (KeyUtil.isDownKey(event)) return focusFirst(mBinding.keyboard);
++            return false;
++        }
++        if (current == null) return false;
+         View inKeyboard = mBinding.keyboard.findContainingItemView(current);
+         View inWord = mBinding.wordRecycler.findContainingItemView(current);
+         View inRecord = mBinding.recordRecycler.findContainingItemView(current);
+@@ -362,7 +382,7 @@ public class SearchActivity extends BaseActivity implements WordAdapter.OnClickL
+ 
+     private boolean handleKeyboardKey(KeyEvent event, View item) {
+         if (KeyUtil.isUpKey(event) && isFirstRow(mBinding.keyboard, item)) {
+-            mBinding.keyword.requestFocus();
++            mBinding.filmKeyboard.requestFocus();
+             return true;
+         }
+         if (KeyUtil.isLeftKey(event) && isFirstInRow(mBinding.keyboard, item)) return true;
+@@ -473,8 +493,9 @@ public class SearchActivity extends BaseActivity implements WordAdapter.OnClickL
+     @Override
+     protected void onResume() {
+         super.onResume();
++        mLaunchingResults = false;
+         mBinding.mic.setFocusable(true);
+-        mBinding.keyword.requestFocus();
++        if (getCurrentFocus() == null) mBinding.keyword.requestFocus();
+     }
+ 
+     @Override
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/SearchAdapter.java b/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/SearchAdapter.java
+index 86c230a..e581fe7 100644
+--- a/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/SearchAdapter.java
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/adapter/SearchAdapter.java
+@@ -11,12 +11,17 @@ import androidx.recyclerview.widget.RecyclerView;
+ import com.bumptech.glide.Glide;
+ import com.bumptech.glide.RequestBuilder;
+ import com.fongmi.android.tv.App;
++import com.fongmi.android.tv.R;
+ import com.fongmi.android.tv.bean.Vod;
+ import com.fongmi.android.tv.databinding.AdapterSearchBinding;
+ import com.fongmi.android.tv.utils.ImgUtil;
+ import com.fongmi.android.tv.utils.ResUtil;
+ 
++import java.text.Normalizer;
+ import java.util.ArrayList;
++import java.util.LinkedHashMap;
++import java.util.Locale;
++import java.util.Map;
+ import java.util.List;
+ 
+ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder> {
+@@ -24,6 +29,9 @@ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder
+     private final OnClickListener listener;
+     private final List<Vod> items;
+     private final List<Vod> source;
++    private final Map<String, List<Vod>> listings = new LinkedHashMap<>();
++    private final Map<String, Integer> positions = new LinkedHashMap<>();
++    private boolean grouped = true;
+     private final int height;
+     private final int width;
+ 
+@@ -61,12 +69,65 @@ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder
+         notifyDataSetChanged();
+     }
+ 
+-    public void setSource(List<Vod> items, int visibleCount) {
++    public void setSource(List<Vod> items, int visibleCount, boolean grouped) {
++        this.grouped = grouped;
+         source.clear();
+-        source.addAll(items);
++        listings.clear();
++        positions.clear();
++        mergeListings(items, false);
+         replaceFirst(new ArrayList<>(source.subList(0, Math.min(source.size(), visibleCount))));
+     }
+ 
++    public void resetForNewQuery() {
++        grouped = true;
++        clear();
++    }
++
++    private String titleKey(Vod item) {
++        return Normalizer.normalize(item.getName().trim(), Normalizer.Form.NFC).toLowerCase(Locale.ROOT);
++    }
++
++    private boolean canGroup(Vod item) {
++        return grouped && !item.isFolder() && !item.getName().isBlank();
++    }
++
++    private void mergeListings(List<Vod> batch, boolean reportChanges) {
++        for (Vod item : batch) {
++            if (!canGroup(item)) {
++                source.add(item);
++                continue;
++            }
++            String key = titleKey(item);
++            List<Vod> choices = listings.get(key);
++            if (choices == null) {
++                choices = new ArrayList<>();
++                listings.put(key, choices);
++                positions.put(key, source.size());
++                source.add(item);
++            }
++            boolean duplicate = choices.stream().anyMatch(choice -> sameIdentity(choice, item));
++            if (duplicate) continue;
++            choices.add(item);
++            int index = positions.get(key);
++            if (reportChanges && index < items.size()) notifyItemChanged(index, "listings");
++        }
++    }
++
++    public List<Vod> getListings(Vod item) {
++        if (!canGroup(item)) return List.of(item);
++        List<Vod> choices = listings.get(titleKey(item));
++        return choices == null ? List.of(item) : new ArrayList<>(choices);
++    }
++
++    private static boolean sameIdentity(Vod a, Vod b) {
++        return a.getSiteKey().equals(b.getSiteKey()) && a.getId().equals(b.getId());
++    }
++
++    public int findVisiblePosition(Vod item) {
++        for (int i = 0; i < items.size(); i++) if (sameIdentity(items.get(i), item)) return i;
++        return RecyclerView.NO_POSITION;
++    }
++
+     public boolean ensureLoaded(int position, int preloadCount) {
+         if (source.isEmpty()) return false;
+         int target = Math.min(source.size(), Math.max(items.size(), position + preloadCount));
+@@ -78,7 +139,7 @@ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder
+     }
+ 
+     public void appendSource(List<Vod> items, int minVisibleCount) {
+-        source.addAll(items);
++        mergeListings(items, true);
+         int target = Math.min(source.size(), Math.max(this.items.size(), minVisibleCount));
+         if (target <= this.items.size()) return;
+         int start = this.items.size();
+@@ -89,6 +150,8 @@ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder
+     public void clear() {
+         this.items.clear();
+         this.source.clear();
++        listings.clear();
++        positions.clear();
+         notifyDataSetChanged();
+     }
+ 
+@@ -125,15 +188,28 @@ public class SearchAdapter extends RecyclerView.Adapter<SearchAdapter.ViewHolder
+     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+         Vod item = items.get(position);
+         holder.bindName(item.getName());
+-        holder.binding.site.setText(item.getSiteName());
++        bindSourceLabel(holder, item);
+         holder.binding.remark.setText(item.getRemarks());
+-        holder.binding.site.setVisibility(item.getSiteVisible());
+         holder.binding.remark.setVisibility(item.getRemarkVisible());
+         holder.binding.getRoot().setOnClickListener(v -> listener.onItemClick(item));
+         holder.binding.getRoot().setOnKeyListener((v, keyCode, event) -> listener.onItemKey(holder.getBindingAdapterPosition(), keyCode, event));
+         ImgUtil.load(item.getName(), item.getPic(), holder.binding.image, width, height);
+     }
+ 
++    private void bindSourceLabel(ViewHolder holder, Vod item) {
++        List<Vod> choices = canGroup(item) ? listings.get(titleKey(item)) : null;
++        int count = choices == null ? 1 : choices.size();
++        holder.binding.site.setText(count > 1
++                ? holder.itemView.getContext().getString(R.string.film_result_sources, count) : item.getSiteName());
++        holder.binding.site.setVisibility(count > 1 ? android.view.View.VISIBLE : item.getSiteVisible());
++    }
++
++    @Override
++    public void onBindViewHolder(@NonNull ViewHolder holder, int position, @NonNull List<Object> payloads) {
++        if (payloads.isEmpty()) super.onBindViewHolder(holder, position, payloads);
++        else bindSourceLabel(holder, items.get(position));
++    }
++
+     @Override
+     public void onViewRecycled(@NonNull ViewHolder holder) {
+         Glide.with(holder.binding.image).clear(holder.binding.image);
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/custom/CustomSearchView.java b/app/src/leanback/java/com/fongmi/android/tv/ui/custom/CustomSearchView.java
+index 4d9a79f..ab410e1 100644
+--- a/app/src/leanback/java/com/fongmi/android/tv/ui/custom/CustomSearchView.java
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/custom/CustomSearchView.java
+@@ -24,11 +24,6 @@ public class CustomSearchView extends CustomEditText {
+         flicker = ResUtil.getAnim(R.anim.flicker);
+     }
+ 
+-    @Override
+-    public boolean isFocused() {
+-        return true;
+-    }
+-
+     @Override
+     protected void onFocusChanged(boolean gainFocus, int direction, @Nullable Rect previouslyFocusedRect) {
+         super.onFocusChanged(gainFocus, direction, previouslyFocusedRect);
+diff --git a/app/src/leanback/res/color/film_action_text.xml b/app/src/leanback/res/color/film_action_text.xml
+new file mode 100644
+index 0000000..f4aff52
+--- /dev/null
++++ b/app/src/leanback/res/color/film_action_text.xml
+@@ -0,0 +1,6 @@
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_pressed="true" android:color="@color/film_flow_on_accent" />
++    <item android:state_focused="true" android:color="@color/film_flow_on_accent" />
++    <item android:state_activated="true" android:color="@color/film_flow_on_accent" />
++    <item android:color="@color/film_flow_ink" />
++</selector>
+diff --git a/app/src/leanback/res/drawable/film_action_background.xml b/app/src/leanback/res/drawable/film_action_background.xml
+new file mode 100644
+index 0000000..1914d93
+--- /dev/null
++++ b/app/src/leanback/res/drawable/film_action_background.xml
+@@ -0,0 +1,6 @@
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_pressed="true"><shape><solid android:color="@color/film_flow_pressed" /><corners android:radius="@dimen/film_flow_action_radius" /></shape></item>
++    <item android:state_focused="true"><shape><solid android:color="@color/film_flow_focus" /><corners android:radius="@dimen/film_flow_action_radius" /></shape></item>
++    <item android:state_activated="true"><shape><solid android:color="@color/film_flow_accent" /><corners android:radius="@dimen/film_flow_action_radius" /></shape></item>
++    <item><shape><solid android:color="@color/film_flow_panel" /><corners android:radius="@dimen/film_flow_action_radius" /></shape></item>
++</selector>
+diff --git a/app/src/leanback/res/layout/activity_collect.xml b/app/src/leanback/res/layout/activity_collect.xml
+index a4c9d71..0c2f4d9 100644
+--- a/app/src/leanback/res/layout/activity_collect.xml
++++ b/app/src/leanback/res/layout/activity_collect.xml
+@@ -4,6 +4,7 @@
+     xmlns:tools="http://schemas.android.com/tools"
+     android:layout_width="match_parent"
+     android:layout_height="match_parent"
++    android:background="@color/film_shelf_home_background"
+     android:orientation="vertical">
+ 
+     <com.google.android.material.textview.MaterialTextView
+@@ -15,8 +16,10 @@
+         android:layout_marginEnd="24dp"
+         android:layout_marginBottom="16dp"
+         android:singleLine="true"
+-        android:textColor="@color/white"
+-        android:textSize="24sp"
++        android:textColor="@color/film_flow_ink"
++        android:textSize="27sp"
++        android:textStyle="bold"
++        android:accessibilityHeading="true"
+         tools:text="@string/collect_result" />
+ 
+     <androidx.appcompat.widget.LinearLayoutCompat
+diff --git a/app/src/leanback/res/values/film_flow.xml b/app/src/leanback/res/values/film_flow.xml
+new file mode 100644
+index 0000000..10c810c
+--- /dev/null
++++ b/app/src/leanback/res/values/film_flow.xml
+@@ -0,0 +1,40 @@
++<resources>
++    <color name="film_flow_ink">#F5F2EC</color>
++    <color name="film_flow_muted">#AAB7B8</color>
++    <color name="film_flow_accent">#9BE4D2</color>
++    <color name="film_flow_on_accent">#092924</color>
++    <color name="film_flow_panel">#222C30</color>
++    <color name="film_flow_focus">#C9FFF1</color>
++    <color name="film_flow_pressed">#7CCBB8</color>
++    <dimen name="film_flow_target">48dp</dimen>
++    <dimen name="film_flow_action_radius">14dp</dimen>
++    <style name="FilmFlow.Action" parent="">
++        <item name="android:minHeight">@dimen/film_flow_target</item>
++        <item name="android:minWidth">@dimen/film_flow_target</item>
++        <item name="android:background">@drawable/film_action_background</item>
++        <item name="android:backgroundTint">@null</item>
++        <item name="backgroundTint">@null</item>
++        <item name="android:textColor">@color/film_action_text</item>
++        <item name="android:paddingStart">12dp</item>
++        <item name="android:paddingEnd">12dp</item>
++        <item name="android:gravity">center</item>
++        <item name="android:focusable">true</item>
++        <item name="android:clickable">true</item>
++        <item name="android:ellipsize">end</item>
++        <item name="android:maxLines">1</item>
++        <item name="android:textSize">16sp</item>
++    </style>
++
++    <string name="film_keyboard">System keyboard</string>
++    <string name="film_phone_input">Type from phone</string>
++    <string name="film_search_submit">Search</string>
++    <string name="film_result_sources">%1$d listings</string>
++    <string name="film_choose_listing">Select a source for %1$s</string>
++    <string name="film_listing_year">%1$s · %2$s</string>
++    <string name="film_detail_play">Play</string>
++    <string name="film_detail_continue">Continue · %1$s</string>
++    <string name="film_detail_episodes">Episodes</string>
++    <string name="film_detail_sources">Switch source</string>
++    <string name="film_scan_local">Check this episode on this source</string>
++    <string name="film_scan_other">Find other sources</string>
++</resources>
+diff --git a/app/src/leanback/res/values-zh-rCN/film_flow.xml b/app/src/leanback/res/values-zh-rCN/film_flow.xml
+new file mode 100644
+index 0000000..943fd53
+--- /dev/null
++++ b/app/src/leanback/res/values-zh-rCN/film_flow.xml
+@@ -0,0 +1,14 @@
++<resources>
++    <string name="film_keyboard">系统键盘</string>
++    <string name="film_phone_input">手机输入</string>
++    <string name="film_search_submit">搜索</string>
++    <string name="film_result_sources">%1$d 条片源</string>
++    <string name="film_choose_listing">选择「%1$s」的片源</string>
++    <string name="film_listing_year">%1$s · %2$s</string>
++    <string name="film_detail_play">播放</string>
++    <string name="film_detail_continue">继续播放 · %1$s</string>
++    <string name="film_detail_episodes">选集</string>
++    <string name="film_detail_sources">换源</string>
++    <string name="film_scan_local">检测本来源的当前集</string>
++    <string name="film_scan_other">查找其他来源</string>
++</resources>
+diff --git a/app/src/leanback/res/values-zh-rTW/film_flow.xml b/app/src/leanback/res/values-zh-rTW/film_flow.xml
+new file mode 100644
+index 0000000..ec8088b
+--- /dev/null
++++ b/app/src/leanback/res/values-zh-rTW/film_flow.xml
+@@ -0,0 +1,14 @@
++<resources>
++    <string name="film_keyboard">系統鍵盤</string>
++    <string name="film_phone_input">手機輸入</string>
++    <string name="film_search_submit">搜尋</string>
++    <string name="film_result_sources">%1$d 筆片源</string>
++    <string name="film_choose_listing">選擇「%1$s」的片源</string>
++    <string name="film_listing_year">%1$s · %2$s</string>
++    <string name="film_detail_play">播放</string>
++    <string name="film_detail_continue">繼續播放 · %1$s</string>
++    <string name="film_detail_episodes">選集</string>
++    <string name="film_detail_sources">換源</string>
++    <string name="film_scan_local">檢測本來源的目前集數</string>
++    <string name="film_scan_other">尋找其他來源</string>
++</resources>
