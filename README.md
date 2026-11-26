@@ -16,6 +16,10 @@ CI verifies the build; reproduction and actual playback are separate.
 
 This repository contains the source changes and reproducible build recipe, not upstream binary copies. The build fetches a pinned public upstream snapshot and checksum-verified Python dependencies. See the upstream license and third-party notices/locks in that snapshot. CI builds and tests an independent ARM64 debug APK; there is no public binary release pending a third-party redistribution review. Binary alignment checks are not Android runtime tests.
 
+## UI architecture
+
+See the [staged UI migration assessment](docs/film-ui-architecture.md).
+
 ## Build
 
 Install JDK 21, Python 3.10, Android SDK 37.0, Build Tools 37.0.0, NDK 29.0.14206865 and CMake 3.22.1. Set `ANDROID_HOME`.
