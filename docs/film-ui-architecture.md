@@ -1,6 +1,6 @@
 # Film Shelf UI architecture · staged migration
 
-Status: architecture selected for review; no runtime or dependency change.
+Status: FS-UI-01 implemented and locally verified on an ARM64 emulator on November 26.
 Baseline: local Film Shelf app `a3ca5a7`; QA-only branch tip `ffc5854`.
 Goal: a calm, modern living-room and tablet UI, without changing the proven
 catalog, playback and resume contracts. First approved runtime slice will be
@@ -102,3 +102,43 @@ and unchanged search → open → exit → resume with synthetic data. Test touc
 emulator and D-pad; count Y700 or a TV as physically passed only when it was
 actually observed. Rollback in dev: turn off the new native header/row branch
 or revert its isolated patch; no data migration, new app ID or player change.
+
+
+## FS-UI-01 implementation and rollback
+
+Compose compiler 2.2.10 matches the AGP 9.2.1 toolchain; AndroidX TV Material
+1.1.0 uses Compose UI/Foundation 1.10.3. Compose dependencies and code are
+limited to the leanback variant. One hosted composition replaces only the
+native Home chrome and hands actions back to Java. The older Home code is
+still used in web-home mode. Compact history cards remain native and share the
+existing History model. After D-pad selection, the resume path resolves the
+same history key in the active catalog, not its previous row position.
+
+For debug QA, cold launch Home with the boolean
+`film_shelf_legacy_home=true` intent extra to force the previous UI in the
+same APK. For a rollback build, set `film_shelf_modern_native_home` to
+`false` or revert this scoped patch; neither path requires clearing data.
+
+### Verification
+
+- Compared against the exact `a3ca5a7` APK. Final debug build and Android
+  16 KiB audit passed; 21 existing line-probe/playback-wait tests and the
+  static touch/D-pad gate passed. APK grew 3.26 MiB (about 2%). Three
+  `am start -W` first-frame samples on the same emulator/config do not
+  establish general startup performance, but showed no regression in
+  this spot check.
+- TV Material 1.1.0's exact `SurfaceImpl.kt` implementation handles
+  Center/Enter. It did not handle the first touch in the first package.
+  Added a separate Compose pointer gesture path sharing press feedback
+  with the TV Surface, without treating focus as a click.
+- Exact final APK: a single tap opened Search; directional focus did not
+  activate it; Center opened it and Back restored Search focus. A
+  previously unfocused history card opened on first tap and advanced
+  playback. Search query B also reached the synthetic native results and
+  opened Blue Hour with independently advancing playback. A non-first
+  history item reopened with D-pad, reordered to
+  the first slot on return, and retained focus by identity. Legacy
+  fallback launched in the same APK without data reset.
+- Synthetic catalog showed all three history titles above the fold on
+  emulator 20:9, 16:9 and 16:10. Not physical TV/Y700 acceptance; optional
+  web mode was kept on its old path, not exercised against a live source.

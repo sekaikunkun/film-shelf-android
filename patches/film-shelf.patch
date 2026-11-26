@@ -1,8 +1,15 @@
 diff --git a/app/build.gradle b/app/build.gradle
-index 785c9b4..03aedf8 100644
+index 785c9b4..72ac7bc 100644
 --- a/app/build.gradle
 +++ b/app/build.gradle
-@@ -35,7 +35,7 @@ android {
+@@ -1,5 +1,6 @@
+ plugins {
+     alias libs.plugins.android.application
++    alias libs.plugins.compose.compiler
+ }
+ 
+ def localProps = new Properties()
+@@ -35,7 +36,7 @@ android {
      ndkVersion "29.0.14206865"
  
      defaultConfig {
@@ -11,7 +18,15 @@ index 785c9b4..03aedf8 100644
          minSdk libs.versions.minSdk.get().toInteger()
          targetSdk libs.versions.targetSdk.get().toInteger()
          versionCode 560
-@@ -117,6 +117,9 @@ android {
+@@ -82,6 +83,7 @@ android {
+     buildFeatures {
+         buildConfig = true
+         viewBinding = true
++        compose = true
+     }
+ 
+     testOptions {
+@@ -117,6 +119,9 @@ android {
          exclude group: 'com.android.support'
          resolutionStrategy {
              force libs.okhttp
@@ -21,6 +36,16 @@ index 785c9b4..03aedf8 100644
              eachDependency { details ->
                  if (details.requested.group == 'androidx.media3') {
                      details.useVersion(libs.versions.media3.get())
+@@ -193,6 +198,9 @@ dependencies {
+     implementation libs.tensorflow.lite
+     implementation libs.zxing.core
+     leanbackImplementation libs.leanback
++    leanbackImplementation libs.tv.material
++    leanbackImplementation libs.compose.ui
++    leanbackImplementation libs.compose.foundation
+     leanbackImplementation libs.androidautosize
+     leanbackImplementation libs.zxing.android.embedded
+     mobileImplementation libs.biometric
 diff --git a/app/src/leanback/AndroidManifest.xml b/app/src/leanback/AndroidManifest.xml
 index 799122e..f11f471 100644
 --- a/app/src/leanback/AndroidManifest.xml
@@ -563,10 +588,60 @@ new file mode 100644
 +    }
 +}
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
-index 4a19e31..6f1a6f9 100644
+index 4a19e31..209f507 100644
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/HomeActivity.java
-@@ -156,8 +156,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -3,9 +3,11 @@ package com.fongmi.android.tv.ui.activity;
+ import android.annotation.SuppressLint;
+ import android.app.SearchManager;
+ import android.content.Intent;
++import android.graphics.Color;
+ import android.os.Bundle;
+ import android.text.TextUtils;
+ import android.view.KeyEvent;
++import android.view.MotionEvent;
+ import android.view.View;
+ import android.view.ViewTreeObserver;
+ import android.webkit.WebView;
+@@ -18,12 +20,16 @@ import androidx.leanback.widget.FocusHighlight;
+ import androidx.leanback.widget.HorizontalGridView;
+ import androidx.leanback.widget.ItemBridgeAdapter;
+ import androidx.leanback.widget.ListRow;
++import androidx.leanback.widget.ListRowPresenter;
++import androidx.leanback.widget.ViewHolderTask;
+ import androidx.leanback.widget.OnChildViewHolderSelectedListener;
+ import androidx.lifecycle.ViewModelProvider;
++import androidx.lifecycle.Lifecycle;
+ import androidx.recyclerview.widget.RecyclerView;
+ import androidx.viewbinding.ViewBinding;
+ 
+ import com.fongmi.android.tv.App;
++import com.fongmi.android.tv.BuildConfig;
+ import com.fongmi.android.tv.Product;
+ import com.fongmi.android.tv.R;
+ import com.fongmi.android.tv.api.config.LiveConfig;
+@@ -57,6 +63,7 @@ import com.fongmi.android.tv.ui.base.BaseActivity;
+ import com.fongmi.android.tv.ui.custom.CustomRowPresenter;
+ import com.fongmi.android.tv.ui.custom.CustomSelector;
+ import com.fongmi.android.tv.ui.custom.CustomTitleView;
++import com.fongmi.android.tv.ui.filmshelf.FilmShelfHome;
+ import com.fongmi.android.tv.ui.dialog.ExitConfirmDialog;
+ import com.fongmi.android.tv.ui.dialog.SiteDialog;
+ import com.fongmi.android.tv.ui.presenter.FuncPresenter;
+@@ -100,6 +107,12 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+     private ActivityHomeBinding mBinding;
+     private ArrayObjectAdapter mHistoryAdapter;
+     private ArrayObjectAdapter mFuncAdapter;
++    private ListRow legacyFunctions;
++    private FilmShelfHome.Chrome modernChrome;
++    private boolean modernNativeHome;
++    private boolean restoreHistoryFocus;
++    private String historyReturnKey;
++    private int historyReturnConfig;
+     private ArrayObjectAdapter mAdapter;
+     private HistoryPresenter mPresenter;
+     private SiteViewModel mViewModel;
+@@ -156,8 +169,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
      private void initAfterFirstFrame() {
          SpiderDebug.log("startup", "home first frame cost=%sms", System.currentTimeMillis() - App.time());
          App.post(this::initConfig, 80);
@@ -579,7 +654,25 @@ index 4a19e31..6f1a6f9 100644
      }
  
      private void runAfterFirstFrame(Runnable runnable) {
-@@ -246,7 +248,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -195,7 +210,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+     }
+ 
+     private void updateToolbarVisibility(boolean visible) {
+-        mBinding.toolbar.setVisibility(visible && webToolbarVisible ? View.VISIBLE : View.GONE);
++        mBinding.toolbar.setVisibility(visible && webToolbarVisible && !modernNativeHome ? View.VISIBLE : View.GONE);
+         syncNativeContentInset();
+         syncWebOverlayLayout();
+     }
+@@ -229,7 +244,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+     }
+ 
+     private boolean isTopRow(int position) {
+-        int history = mAdapter.indexOf(R.string.home_history);
++        int history = mAdapter.indexOf(historyHeading());
+         return history == -1 || position < history;
+     }
+ 
+@@ -246,7 +261,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      private void checkType(Intent intent) {
          if ("text/plain".equals(intent.getType()) || UrlUtil.path(intent.getData()).endsWith(".m3u")) {
@@ -588,7 +681,23 @@ index 4a19e31..6f1a6f9 100644
          } else {
              VideoActivity.push(this, intent.getData().toString());
          }
-@@ -323,7 +325,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -309,7 +324,8 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+ 
+     private void setAdapter() {
+         mHistoryAdapter = new ArrayObjectAdapter(mPresenter = new HistoryPresenter(this));
+-        mAdapter.add(new ListRow(mFuncAdapter = new ArrayObjectAdapter(new FuncPresenter(this))));
++        legacyFunctions = new ListRow(mFuncAdapter = new ArrayObjectAdapter(new FuncPresenter(this)));
++        mAdapter.add(legacyFunctions);
+         mAdapter.add(R.string.home_history);
+         mAdapter.add(R.string.home_recommend);
+     }
+@@ -318,12 +334,12 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+         List<String> items = Arrays.asList(getHome().getName(), getConfig().getName(), getString(R.string.app_name));
+         Optional<String> optional = items.stream().filter(s -> !TextUtils.isEmpty(s)).findFirst();
+         optional.ifPresent(s -> mBinding.title.setText(s));
++        if (modernChrome != null) modernChrome.setSourceTitle(optional.orElse(""));
+     }
+ 
      private void initConfig() {
          SpiderDebug.log("startup", "config load start cost=%sms", System.currentTimeMillis() - App.time());
          VodConfig.get().init().load(getCallback());
@@ -596,7 +705,7 @@ index 4a19e31..6f1a6f9 100644
          WallConfig.get().init();
      }
  
-@@ -367,14 +368,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -367,16 +383,14 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
          SpiderDebug.log("startup", "webview prewarm end cost=%sms", System.currentTimeMillis() - App.time());
      }
  
@@ -610,8 +719,74 @@ index 4a19e31..6f1a6f9 100644
 -    }
  
      private void setFocus() {
++        if (modernNativeHome) {
++            if (!mBinding.modernHomeChrome.hasFocus() && !mBinding.recycler.hasFocus()) {
++                modernChrome.requestSearchFocus();
++            }
++            return;
++        }
          mBinding.title.setSelected(true);
-@@ -462,7 +455,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+         mBinding.title.setFocusable(true);
+         if (!mBinding.title.hasFocus()) mBinding.recycler.requestFocus();
+@@ -391,6 +405,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+             ensureWebView();
+         }
+         if (!forceNative && mWeb != null && mWeb.load(getHome())) {
++            setModernNativeHome(false);
+             mBinding.typeRecycler.setVisibility(View.GONE);
+             mBinding.recycler.setVisibility(View.GONE);
+             mBinding.progressLayout.showContent();
+@@ -399,6 +414,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+         }
+         if (mWeb != null) mWeb.hide();
+         hideWebOverlay();
++        setModernNativeHome(useModernHome());
+         applyTvChrome(TV_NORMAL);
+         mBinding.recycler.setVisibility(View.VISIBLE);
+         mResult = Result.empty();
+@@ -409,6 +425,41 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+         mViewModel.homeContent();
+     }
+ 
++    private boolean useModernHome() {
++        return getResources().getBoolean(R.bool.film_shelf_modern_native_home)
++                && !(BuildConfig.DEBUG && getIntent().getBooleanExtra("film_shelf_legacy_home", false));
++    }
++
++    private void setModernNativeHome(boolean enabled) {
++        if (modernNativeHome == enabled) return;
++        int heading = mAdapter.indexOf(historyHeading());
++        modernNativeHome = enabled;
++        if (enabled && modernChrome == null) {
++            modernChrome = FilmShelfHome.attach(mBinding.modernHomeChrome, new FilmShelfHome.Actions() {
++                @Override public void search() { onItemClick(Func.create(R.string.home_search)); }
++                @Override public void searchCurrentSource() { onLongClick(Func.create(R.string.home_search)); }
++                @Override public void sources() { showDialog(); }
++                @Override public void reloadSource() { reloadConfig(); }
++                @Override public void favorites() { onItemClick(Func.create(R.string.home_keep)); }
++                @Override public void push() { onItemClick(Func.create(R.string.home_push)); }
++                @Override public void settings() { onItemClick(Func.create(R.string.home_setting)); }
++            });
++        }
++        if (heading >= 0) mAdapter.replace(heading, historyHeading());
++        if (enabled) mAdapter.remove(legacyFunctions);
++        else if (mAdapter.indexOf(legacyFunctions) < 0) mAdapter.add(0, legacyFunctions);
++        mBinding.modernHomeChrome.setVisibility(enabled ? View.VISIBLE : View.GONE);
++        mBinding.nativeContent.setBackgroundColor(enabled
++                ? getColor(R.color.film_shelf_home_background) : Color.TRANSPARENT);
++        mClock.stop();
++        if (!enabled && getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED)) mClock.start();
++        getHistory(true);
++        if (enabled) {
++            setTitle();
++            modernChrome.requestSearchFocus();
++        }
++    }
++
+     private void showWebOverlay() {
+         mBinding.webOverlay.setVisibility(View.VISIBLE);
+         syncWebOverlayLayout();
+@@ -462,7 +513,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      private void setFunc() {
          List<Func> items = new ArrayList<>();
@@ -619,7 +794,71 @@ index 4a19e31..6f1a6f9 100644
          items.add(Func.create(R.string.home_search));
          items.add(Func.create(R.string.home_keep));
          items.add(Func.create(R.string.home_push));
-@@ -520,9 +512,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -479,10 +529,11 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+         int historyIndex = getHistoryIndex();
+         int recommendIndex = getRecommendIndex();
+         boolean exist = recommendIndex - historyIndex == 2;
+-        if (renew) mHistoryAdapter = new ArrayObjectAdapter(mPresenter = new HistoryPresenter(this));
++        if (renew) mHistoryAdapter = new ArrayObjectAdapter(mPresenter = new HistoryPresenter(this, modernNativeHome));
+         if ((items.isEmpty() && exist) || (renew && exist)) mAdapter.removeItems(historyIndex, 1);
+         if ((!items.isEmpty() && !exist) || (renew && exist)) mAdapter.add(historyIndex, new ListRow(mHistoryAdapter));
+         mHistoryAdapter.setItems(items, new BaseDiffCallback<History>());
++        if (restoreHistoryFocus) restoreHistoryFocus();
+     }
+ 
+     private void setHistoryDelete(boolean delete) {
+@@ -497,8 +548,49 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+         mHistoryAdapter.clear();
+     }
+ 
++    private int historyHeading() {
++        return modernNativeHome ? R.string.film_shelf_home_continue : R.string.home_history;
++    }
++
+     private int getHistoryIndex() {
+-        return mAdapter.indexOf(R.string.home_history) + 1;
++        return mAdapter.indexOf(historyHeading()) + 1;
++    }
++
++    private void restoreHistoryFocus() {
++        if (!modernNativeHome || historyReturnKey == null
++                || !getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED)) return;
++        String key = historyReturnKey;
++        mBinding.recycler.post(() -> {
++            if (!restoreHistoryFocus || !key.equals(historyReturnKey)
++                    || !getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED)) return;
++            int match = -1;
++            if (VodConfig.getCid() == historyReturnConfig) {
++                for (int i = 0; i < mHistoryAdapter.size(); i++) {
++                    if (key.equals(((History) mHistoryAdapter.get(i)).getKey())) {
++                        match = i;
++                        break;
++                    }
++                }
++            }
++            if (match < 0) {
++                modernChrome.requestSearchFocus();
++                return;
++            }
++            int card = match;
++            mBinding.recycler.setSelectedPosition(getHistoryIndex(), new ViewHolderTask() {
++                @Override public void run(RecyclerView.ViewHolder holder) {
++                    if (!restoreHistoryFocus || !key.equals(historyReturnKey)) return;
++                    if (holder instanceof ItemBridgeAdapter.ViewHolder bridge
++                            && bridge.getViewHolder() instanceof ListRowPresenter.ViewHolder row) {
++                        row.getGridView().setSelectedPosition(card, new ViewHolderTask() {
++                            @Override public void run(RecyclerView.ViewHolder cardHolder) {
++                                if (restoreHistoryFocus && key.equals(historyReturnKey)) cardHolder.itemView.requestFocus();
++                            }
++                        });
++                    }
++                }
++            });
++        });
+     }
+ 
+     private int getRecommendIndex() {
+@@ -520,9 +612,6 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
              case COMMON:
                  setFunc();
                  break;
@@ -629,7 +868,7 @@ index 4a19e31..6f1a6f9 100644
          }
      }
  
-@@ -586,8 +575,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+@@ -586,8 +675,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
  
      @Override
      public void onItemClick(Func item) {
@@ -639,6 +878,74 @@ index 4a19e31..6f1a6f9 100644
          else if (item.getResId() == R.string.home_push) PushActivity.start(this);
          else if (item.getResId() == R.string.home_search) SearchActivity.start(this);
          else if (item.getResId() == R.string.home_setting) SettingActivity.start(this);
+@@ -627,6 +715,9 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+ 
+     @Override
+     public void onItemClick(History item) {
++        historyReturnKey = modernNativeHome && !mBinding.recycler.isInTouchMode() ? item.getKey() : null;
++        historyReturnConfig = VodConfig.getCid();
++        restoreHistoryFocus = false;
+         VideoActivity.start(this, item.getSiteKey(), item.getVodId(), item.getVodName(), item.getVodPic(), null, item.getWallPic());
+     }
+ 
+@@ -686,8 +777,21 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+         VodConfig.get().setHome(item);
+     }
+ 
++    @Override
++    public boolean dispatchTouchEvent(MotionEvent event) {
++        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
++            restoreHistoryFocus = false;
++            historyReturnKey = null;
++        }
++        return super.dispatchTouchEvent(event);
++    }
++
+     @Override
+     public boolean dispatchKeyEvent(KeyEvent event) {
++        if (KeyUtil.isActionDown(event)) {
++            restoreHistoryFocus = false;
++            historyReturnKey = null;
++        }
+         if (KeyUtil.isMenuKey(event)) {
+             showDialog();
+             return true;
+@@ -705,6 +809,15 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+             if (mWeb.dispatchKeyEvent(event)) return true;
+             return super.dispatchKeyEvent(event);
+         }
++        if (modernNativeHome && KeyUtil.isActionDown(event)) {
++            if (KeyUtil.isDownKey(event) && mBinding.modernHomeChrome.hasFocus()) return requestHomeFocus();
++            if (KeyUtil.isUpKey(event) && (mBinding.typeRecycler.hasFocus()
++                    || (mBinding.typeRecycler.getVisibility() != View.VISIBLE && mBinding.recycler.hasFocus()
++                        && mBinding.recycler.getSelectedPosition() <= getHistoryIndex()))) {
++                modernChrome.requestSearchFocus();
++                return true;
++            }
++        }
+         if (KeyUtil.isActionDown(event) & KeyUtil.isUpKey(event) && mBinding.typeRecycler.hasFocus()) return requestTitleFocus();
+         if (KeyUtil.isActionDown(event) & KeyUtil.isDownKey(event) && mBinding.typeRecycler.hasFocus()) return requestContentFocus();
+         if (KeyUtil.isActionDown(event) & KeyUtil.isUpKey(event) && mBinding.recycler.hasFocus() && mBinding.typeRecycler.getVisibility() == View.VISIBLE) updateToolbarVisibility(true);
+@@ -737,8 +850,10 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+     @Override
+     protected void onResume() {
+         super.onResume();
+-        mClock.start();
++        if (!modernNativeHome) mClock.start();
+         if (mWeb != null) mWeb.onResume();
++        restoreHistoryFocus = historyReturnKey != null;
++        if (restoreHistoryFocus) mBinding.recycler.post(this::restoreHistoryFocus);
+     }
+ 
+     @Override
+@@ -799,6 +914,7 @@ public class HomeActivity extends BaseActivity implements CustomTitleView.Listen
+ 
+     @Override
+     public void onWebLoading() {
++        setModernNativeHome(false);
+         showWebOverlay();
+         mBinding.progressLayout.showProgress();
+     }
 diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 --- a/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
 +++ b/app/src/leanback/java/com/fongmi/android/tv/ui/activity/VideoActivity.java
@@ -2914,3 +3221,447 @@ diff --git a/app/src/leanback/res/layout/adapter_filter.xml b/app/src/leanback/r
      android:textSize="16sp"
      tools:text="全部" />
 \ No newline at end of file
+diff --git a/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/HistoryPresenter.java b/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/HistoryPresenter.java
+index 2976187..32a1516 100644
+--- a/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/HistoryPresenter.java
++++ b/app/src/leanback/java/com/fongmi/android/tv/ui/presenter/HistoryPresenter.java
+@@ -1,6 +1,9 @@
+ package com.fongmi.android.tv.ui.presenter;
+ 
++import android.graphics.Color;
++import android.graphics.drawable.GradientDrawable;
+ import android.view.LayoutInflater;
++import android.widget.TextView;
+ import android.view.View;
+ import android.view.ViewGroup;
+ 
+@@ -19,11 +22,17 @@ import com.fongmi.android.tv.utils.ResUtil;
+ public class HistoryPresenter extends Presenter {
+ 
+     private final OnClickListener listener;
++    private final boolean compact;
+     private int width, height;
+     private boolean delete;
+ 
+     public HistoryPresenter(OnClickListener listener) {
++        this(listener, false);
++    }
++
++    public HistoryPresenter(OnClickListener listener, boolean compact) {
+         this.listener = listener;
++        this.compact = compact;
+         setLayoutSize();
+     }
+ 
+@@ -40,7 +49,7 @@ public class HistoryPresenter extends Presenter {
+         int space = ResUtil.dp2px(48) + ResUtil.dp2px(16 * (Product.getColumn() - 1));
+         int base = ResUtil.getScreenWidth() - space;
+         width = base / Product.getColumn();
+-        height = (int) (width / 0.75f);
++        height = compact ? Math.min(ResUtil.dp2px(104), (int) (width * 0.65f)) : (int) (width / 0.75f);
+     }
+ 
+     public boolean isDelete() {
+@@ -65,9 +74,26 @@ public class HistoryPresenter extends Presenter {
+         ViewHolder holder = new ViewHolder(AdapterVodBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false));
+         holder.binding.getRoot().getLayoutParams().width = width;
+         holder.binding.image.getLayoutParams().height = height;
++        if (compact) {
++            styleBadge(holder.binding.site, 0xD9171F22);
++            styleBadge(holder.binding.historyProgress, 0xE8233737);
++            styleBadge(holder.binding.remark, 0xD9171F22);
++            holder.binding.name.setTextColor(0xFFF5F2EC);
++            holder.binding.name.setTextSize(15);
++        }
+         return holder;
+     }
+ 
++    private void styleBadge(TextView view, int color) {
++        GradientDrawable pill = new GradientDrawable();
++        pill.setCornerRadius(ResUtil.dp2px(6));
++        pill.setColor(color);
++        view.setBackground(pill);
++        view.setTextColor(Color.WHITE);
++        view.setTextSize(11);
++        view.setPadding(ResUtil.dp2px(5), ResUtil.dp2px(1), ResUtil.dp2px(5), ResUtil.dp2px(1));
++    }
++
+     @Override
+     public void onBindViewHolder(@NonNull Presenter.ViewHolder viewHolder, Object object) {
+         History item = (History) object;
+diff --git a/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfHome.kt b/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfHome.kt
+new file mode 100644
+index 0000000..b4a0bbb
+--- /dev/null
++++ b/app/src/leanback/kotlin/com/fongmi/android/tv/ui/filmshelf/FilmShelfHome.kt
+@@ -0,0 +1,278 @@
++package com.fongmi.android.tv.ui.filmshelf
++
++import android.view.ViewGroup
++import androidx.compose.foundation.Canvas
++import androidx.compose.foundation.gestures.detectTapGestures
++import androidx.compose.foundation.interaction.MutableInteractionSource
++import androidx.compose.foundation.interaction.PressInteraction
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.BoxWithConstraints
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.RowScope
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.heightIn
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableIntStateOf
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.rememberUpdatedState
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.focus.FocusRequester
++import androidx.compose.ui.focus.focusRequester
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.StrokeCap
++import androidx.compose.ui.graphics.drawscope.Stroke
++import androidx.compose.ui.input.pointer.pointerInput
++import androidx.compose.ui.platform.ComposeView
++import androidx.compose.ui.platform.ViewCompositionStrategy
++import androidx.compose.ui.res.colorResource
++import androidx.compose.ui.res.stringResource
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.tv.material3.ClickableSurfaceDefaults
++import androidx.tv.material3.MaterialTheme
++import androidx.tv.material3.Surface
++import androidx.tv.material3.Text
++import androidx.tv.material3.darkColorScheme
++import com.fongmi.android.tv.R
++
++/** Presentation only. The existing Activity owns all navigation and media actions. */
++object FilmShelfHome {
++    class Chrome internal constructor(private val view: ComposeView) {
++        internal var source by mutableStateOf("")
++        internal var searchFocusRequest by mutableIntStateOf(0)
++
++        fun setSourceTitle(title: String) { source = title }
++
++        fun requestSearchFocus() {
++            if (!view.isInTouchMode) searchFocusRequest++
++        }
++    }
++
++    @JvmStatic
++    fun attach(parent: ViewGroup, actions: Actions): Chrome {
++        val view = ComposeView(parent.context).apply {
++            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
++            layoutParams = ViewGroup.LayoutParams(
++                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
++            )
++        }
++        val chrome = Chrome(view)
++        view.setContent {
++            FilmShelfTheme {
++                HomeChrome(chrome.source, chrome.searchFocusRequest, actions)
++            }
++        }
++        parent.addView(view)
++        return chrome
++    }
++
++    interface Actions {
++        fun search()
++        fun searchCurrentSource()
++        fun sources()
++        fun reloadSource()
++        fun favorites()
++        fun push()
++        fun settings()
++    }
++}
++
++private val Ink = Color(0xFFF5F2EC)
++private val Muted = Color(0xFFAAB7B8)
++private val Teal = Color(0xFF9BE4D2)
++private val OnAccent = Color(0xFF092924)
++private val Panel = Color(0xFF222C30)
++private val FocusPanel = Color(0xFF35494C)
++
++@Composable
++internal fun FilmShelfTheme(content: @Composable () -> Unit) {
++    MaterialTheme(
++        colorScheme = darkColorScheme(
++            primary = Teal,
++            onPrimary = OnAccent,
++            background = colorResource(R.color.film_shelf_home_background),
++            onBackground = Ink,
++            surface = Panel,
++            onSurface = Ink,
++            onSurfaceVariant = Muted,
++        ),
++        content = content,
++    )
++}
++
++@Composable
++private fun HomeChrome(
++    source: String, searchFocusRequest: Int, actions: FilmShelfHome.Actions,
++) {
++    val searchFocus = remember { FocusRequester() }
++    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp)) {
++        if (maxWidth < 570.dp) {
++            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
++                Row(
++                    verticalAlignment = Alignment.CenterVertically,
++                    horizontalArrangement = Arrangement.spacedBy(12.dp),
++                ) {
++                    SourceButton(source, actions, Modifier.weight(0.9f))
++                    SearchButton(actions, Modifier.weight(1.3f).focusRequester(searchFocus))
++                }
++                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Utilities(actions) }
++            }
++        } else {
++            Row(
++                verticalAlignment = Alignment.CenterVertically,
++                horizontalArrangement = Arrangement.spacedBy(12.dp),
++                modifier = Modifier.fillMaxWidth(),
++            ) {
++                SourceButton(source, actions, Modifier.weight(0.9f))
++                SearchButton(actions, Modifier.weight(1.45f).focusRequester(searchFocus))
++                Utilities(actions)
++            }
++        }
++    }
++    LaunchedEffect(searchFocusRequest) {
++        if (searchFocusRequest != 0) searchFocus.requestFocus()
++    }
++}
++
++@Composable
++private fun SourceButton(source: String, actions: FilmShelfHome.Actions, modifier: Modifier) {
++    HomeAction(
++        modifier = modifier,
++        onClick = actions::sources,
++        onLongClick = actions::reloadSource,
++    ) {
++        Column(Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) {
++            Text(
++                stringResource(R.string.film_shelf_home_brand),
++                style = MaterialTheme.typography.titleMedium,
++                fontWeight = FontWeight.SemiBold,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++            Text(
++                source.ifBlank { stringResource(R.string.film_shelf_home_sources) },
++                style = MaterialTheme.typography.labelSmall,
++                color = Muted,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++        }
++    }
++}
++
++@Composable
++private fun SearchButton(actions: FilmShelfHome.Actions, modifier: Modifier) {
++    HomeAction(
++        modifier = modifier,
++        onClick = actions::search,
++        onLongClick = actions::searchCurrentSource,
++        primary = true,
++    ) {
++        Row(
++            verticalAlignment = Alignment.CenterVertically,
++            horizontalArrangement = Arrangement.spacedBy(10.dp),
++            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
++        ) {
++            Canvas(Modifier.size(18.dp)) {
++                val radius = size.minDimension * 0.3f
++                val center = Offset(size.width * 0.43f, size.height * 0.43f)
++                drawCircle(OnAccent, radius, center, style = Stroke(1.8.dp.toPx()))
++                drawLine(OnAccent, center + Offset(radius * .72f, radius * .72f),
++                    Offset(size.width * .86f, size.height * .86f), 1.8.dp.toPx(), StrokeCap.Round)
++            }
++            Text(
++                stringResource(R.string.film_shelf_home_search),
++                style = MaterialTheme.typography.labelLarge,
++                fontWeight = FontWeight.SemiBold,
++                color = OnAccent,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++            )
++        }
++    }
++}
++
++@Composable
++private fun RowScope.Utilities(actions: FilmShelfHome.Actions) {
++    Utility(R.string.film_shelf_home_library, actions::favorites)
++    Utility(R.string.home_push, actions::push)
++    Utility(R.string.film_shelf_home_settings, actions::settings)
++}
++
++@Composable
++private fun Utility(text: Int, action: () -> Unit) {
++    HomeAction(onClick = action) {
++        Text(
++            stringResource(text),
++            modifier = Modifier.padding(horizontal = 11.dp),
++            style = MaterialTheme.typography.labelMedium,
++            maxLines = 1,
++        )
++    }
++}
++
++@Composable
++private fun HomeAction(
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier,
++    onLongClick: (() -> Unit)? = null,
++    primary: Boolean = false,
++    content: @Composable () -> Unit,
++) {
++    val interactions = remember { MutableInteractionSource() }
++    val currentClick by rememberUpdatedState(onClick)
++    val currentLongClick by rememberUpdatedState(onLongClick)
++    val supportsLongClick = onLongClick != null
++    // TV Material's Surface handles Center/Enter and accessibility activation.
++    // Add a separate pointer gesture; keyboard input never fires this callback.
++    val touch = Modifier.pointerInput(interactions, supportsLongClick) {
++        detectTapGestures(
++            onPress = { position ->
++                val event = PressInteraction.Press(position)
++                interactions.tryEmit(event)
++                try {
++                    val completed = tryAwaitRelease()
++                    interactions.tryEmit(if (completed) PressInteraction.Release(event)
++                        else PressInteraction.Cancel(event))
++                } catch (cancelled: kotlinx.coroutines.CancellationException) {
++                    interactions.tryEmit(PressInteraction.Cancel(event))
++                    throw cancelled
++                }
++            },
++            onTap = { currentClick() },
++            onLongPress = if (supportsLongClick) { { currentLongClick?.invoke() } } else null,
++        )
++    }
++    Surface(
++        onClick = onClick,
++        onLongClick = onLongClick,
++        interactionSource = interactions,
++        modifier = modifier.heightIn(min = 48.dp).then(touch),
++        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
++        colors = ClickableSurfaceDefaults.colors(
++            containerColor = if (primary) Teal else Panel,
++            contentColor = if (primary) OnAccent else Ink,
++            focusedContainerColor = if (primary) Color(0xFFC9FFF1) else FocusPanel,
++            focusedContentColor = if (primary) OnAccent else Ink,
++            pressedContainerColor = if (primary) Color(0xFF7CCBB8) else FocusPanel,
++            pressedContentColor = if (primary) OnAccent else Ink,
++        ),
++        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
++    ) {
++        androidx.compose.foundation.layout.Box(
++            modifier = Modifier.heightIn(min = 48.dp),
++            contentAlignment = Alignment.CenterStart,
++        ) { content() }
++    }
++}
+diff --git a/app/src/leanback/res/layout/activity_home.xml b/app/src/leanback/res/layout/activity_home.xml
+index 2dafd49..11834e9 100644
+--- a/app/src/leanback/res/layout/activity_home.xml
++++ b/app/src/leanback/res/layout/activity_home.xml
+@@ -12,6 +12,12 @@
+         android:orientation="vertical"
+         android:paddingTop="80dp">
+ 
++        <FrameLayout
++            android:id="@+id/modernHomeChrome"
++            android:layout_width="match_parent"
++            android:layout_height="wrap_content"
++            android:visibility="gone" />
++
+         <androidx.leanback.widget.HorizontalGridView
+             android:id="@+id/typeRecycler"
+             android:layout_width="match_parent"
+diff --git a/app/src/leanback/res/values/film_shelf_home.xml b/app/src/leanback/res/values/film_shelf_home.xml
+new file mode 100644
+index 0000000..faae521
+--- /dev/null
++++ b/app/src/leanback/res/values/film_shelf_home.xml
+@@ -0,0 +1,10 @@
++<resources>
++    <bool name="film_shelf_modern_native_home">true</bool>
++    <color name="film_shelf_home_background">#111619</color>
++    <string name="film_shelf_home_brand">Film Shelf</string>
++    <string name="film_shelf_home_search">Search titles</string>
++    <string name="film_shelf_home_sources">Sources</string>
++    <string name="film_shelf_home_continue">Continue watching</string>
++    <string name="film_shelf_home_library">Favorites</string>
++    <string name="film_shelf_home_settings">Settings</string>
++</resources>
+diff --git a/app/src/leanback/res/values-zh-rCN/film_shelf_home.xml b/app/src/leanback/res/values-zh-rCN/film_shelf_home.xml
+new file mode 100644
+index 0000000..77a1717
+--- /dev/null
++++ b/app/src/leanback/res/values-zh-rCN/film_shelf_home.xml
+@@ -0,0 +1,8 @@
++<resources>
++    <string name="film_shelf_home_brand">影视仓</string>
++    <string name="film_shelf_home_search">搜索片名</string>
++    <string name="film_shelf_home_sources">片源</string>
++    <string name="film_shelf_home_continue">继续观看</string>
++    <string name="film_shelf_home_library">收藏</string>
++    <string name="film_shelf_home_settings">设置</string>
++</resources>
+diff --git a/app/src/leanback/res/values-zh-rTW/film_shelf_home.xml b/app/src/leanback/res/values-zh-rTW/film_shelf_home.xml
+new file mode 100644
+index 0000000..a036538
+--- /dev/null
++++ b/app/src/leanback/res/values-zh-rTW/film_shelf_home.xml
+@@ -0,0 +1,8 @@
++<resources>
++    <string name="film_shelf_home_brand">影視倉</string>
++    <string name="film_shelf_home_search">搜尋片名</string>
++    <string name="film_shelf_home_sources">片源</string>
++    <string name="film_shelf_home_continue">繼續觀看</string>
++    <string name="film_shelf_home_library">收藏</string>
++    <string name="film_shelf_home_settings">設定</string>
++</resources>
+diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
+index a9aded5..6e2916e 100644
+--- a/gradle/libs.versions.toml
++++ b/gradle/libs.versions.toml
+@@ -1,5 +1,8 @@
+ [versions]
+ agp = "9.2.1"
++composeCompiler = "2.2.10" # Match AGP 9.2.1 built-in Kotlin.
++composeUi = "1.10.3" # Match TV Material 1.1.0.
++tvMaterial = "1.1.0"
+ python = "17.0.0"
+ minSdk = "24"
+ targetSdk = "28"
+@@ -59,6 +62,9 @@ zxingAndroidEmbedded = "4.3.0"
+ zxingCore = "3.5.4"
+ 
+ [libraries]
++compose-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "composeUi" }
++compose-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "composeUi" }
++tv-material = { group = "androidx.tv", name = "tv-material", version.ref = "tvMaterial" }
+ annotation = { group = "androidx.annotation", name = "annotation", version.ref = "annotation" }
+ appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+ biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
+@@ -141,6 +147,7 @@ zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embe
+ zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
+ 
+ [plugins]
++compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "composeCompiler" }
+ android-application = { id = "com.android.application", version.ref = "agp" }
+ android-library = { id = "com.android.library", version.ref = "agp" }
+ chaquo-python = { id = "com.chaquo.python", version.ref = "python" }
